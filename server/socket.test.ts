@@ -4,7 +4,7 @@ import WebSocket from "ws";
 
 import { PROTOCOL_VERSION } from "../shared/protocol";
 import { Backend, startBackend } from "../test/backend";
-import { isAllowedOrigin, parseOrigins } from "./socket";
+import { isAllowedOrigin, MAX_MESSAGES_PER_SECOND, parseOrigins } from "./socket";
 
 describe("parseOrigins", () => {
   it("splits a comma separated list", () => {
@@ -72,10 +72,44 @@ describe("the WebSocket API", () => {
     ]);
   });
 
-  it("ignores what is not a message of the API", async () => {
+  it("refuses what is not a message of the API", async () => {
     backend = await startBackend();
-    const messages = await talk("/ws", ORIGIN, 2, ["not json", "null", '{"type":"nonsense"}', '{"type":"ping"}']);
-    expect(messages[1]).toEqual({ type: "pong" });
+    const messages = await talk("/ws", ORIGIN, 4, ["not json", "null", '{"type":"nonsense"}']);
+    expect(messages.slice(1)).toEqual(Array(3).fill({ type: "error", code: "bad-message" }));
+  });
+
+  it("refuses the messages of the game from a client that is not in one", async () => {
+    backend = await startBackend();
+    const messages = await talk("/ws", ORIGIN, 3, ['{"type":"aim","angle":45}', '{"type":"say","text":"Hello"}']);
+    expect(messages.slice(1)).toEqual([
+      { type: "error", code: "not-allowed", re: "aim" },
+      { type: "error", code: "not-allowed", re: "say" }
+    ]);
+  });
+
+  it("creates a room for a screen and lets a controller join it", async () => {
+    backend = await startBackend();
+    const screen = await talk("/ws", ORIGIN, 4, ['{"type":"create","mode":"hotseat"}']);
+    expect(screen.map((message) => (message as { type: string }).type)).toEqual(["hello", "created", "room", "token"]);
+
+    // The screen has gone, but its room and the token are still there
+    const { token } = screen[3] as { token: string };
+    const controller = await talk("/ws", ORIGIN, 3, [JSON.stringify({ type: "join", token, name: "Ann" })]);
+    expect(controller[1]).toMatchObject({ type: "joined", id: 0 });
+    expect(controller[2]).toMatchObject({
+      type: "room",
+      state: { phase: "lobby", screen: false, players: [{ id: 0, name: "Ann", connected: true }] }
+    });
+  });
+
+  it("drops the messages of a client that sends too many", async () => {
+    backend = await startBackend();
+    const pings = Array(MAX_MESSAGES_PER_SECOND + 20).fill('{"type":"ping"}');
+    const messages = await talk("/ws", ORIGIN, MAX_MESSAGES_PER_SECOND + 2, pings);
+    expect(messages.filter((message) => (message as { type: string }).type === "pong").length).toBeLessThanOrEqual(
+      MAX_MESSAGES_PER_SECOND
+    );
+    expect(messages).toContainEqual({ type: "error", code: "rate-limited" });
   });
 
   it("refuses other origins and other paths", async () => {

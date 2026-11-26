@@ -34,7 +34,8 @@ There are two independent choices: how the game is joined and how the turns go. 
 - The maximum is set on the screen before the game: 8 by default, at most 10 (see 2.4).
 - The room is not listed anywhere, and it cannot be joined with a room code.
 - A QR code is technically just a link, so it carries a short-lived token that changes about every 30 seconds. A screenshot or a forwarded link goes stale quickly. Nobody has to approve a player who joins.
-- The QR code is large in the lobby and small in a corner during the game: a latecomer gets in for the next round, if there is room.
+- The QR code is shown in the lobby. During the game the playing field has the whole screen, with no QR code, title or list of players, and nobody new can join. Joining is open again between the rounds.
+- A device is one player. The server knows the device and keeps what the player chose before the game (the name, the tank, the equipment), so a device that scans the code again, or whose connection was lost, returns to the player it is and cannot join under another name.
 - A player can be removed from the screen in the lobby.
 
 **Online.** Everyone plays on their own device, which shows both the playing field and the controls. The one who creates the room chooses its visibility:
@@ -153,7 +154,17 @@ A dead player can write short texts, which are shown as a speech bubble above th
 
 It is free text in front of other people, so in public online games it is limited (see 4.8).
 
-### 3.7 What is left out
+### 3.7 Sounds
+
+The original makes its sounds with the PC speaker: beeps, and optionally a tone in flight whose pitch follows the height or the speed of the projectile (the Flight Sounds setting). Here the sounds are made properly, with the Web Audio API:
+
+- A launch sound when a weapon is fired and an explosion when it hits, both of which vary by weapon: a Baby Missile is a pop, a Nuke is not.
+- Sounds for the other events of a round: a tank falling, a shield hit, dirt landing, a death.
+- The flight tone of the original, as a setting.
+
+The sounds are played on the device that shows the playing field (the TV in a hotseat game), from the events the server sends (see PROTOCOL.md). A browser lets a page make sound only after the user has touched it, so the sound is unlocked by the click that creates or starts the game. Sounds come last, in phase 5.
+
+### 3.8 What is left out
 
 Computer players, the scanned mountains of the original (the `.MTN` files are under copyright), everything about registering, the hardware settings and saving a game to a file.
 
@@ -183,7 +194,7 @@ The skeleton follows the structure and the tools of sirad-web-app, so that both 
 - The server: Express and `ws`, a WebSocket API at `/ws`, a health check at `/health`, the allowed origins in `ALLOWED_ORIGINS`. It is run with `ts-node`, without a separate build.
 - The browser: Vite + React for the user interfaces (lobby, shop, controller), Canvas 2D for drawing the playing field. WebGL is not needed for these graphics.
 - The connection: the `ApiConnection` of sirad-web-app as it is (reconnects with a growing delay, ping/pong).
-- The messages are described in one place (`shared/protocol.ts`), and the server checks every message it receives with a type guard, because in online play no input can be trusted.
+- The messages are described in one place (`shared/protocol.ts`, explained in [PROTOCOL.md](PROTOCOL.md)), and the server checks every message it receives with a type guard, because in online play no input can be trusted.
 - The tests are run with Vitest; the browser and the server are tested together against the real server (`test/backend.ts`), not a mock.
 - ESLint, Prettier and husky with the settings of sirad-web-app.
 
@@ -235,6 +246,7 @@ Designed for portrait and one thumb:
 - A fire button, which in the live mode shows how the reload proceeds. The other controls work during the reload.
 - One's own energy, money and the wind are visible; in the classic mode a clear "your turn" state and a vibration.
 - When dead: a text field for the speech bubbles.
+- Later (phase 5): the controller shows the damage of one's own tank. The picture of the tank gets holes, scratches and wreckage as the energy goes down, and a DANGER light blinks on the gauges when the damage is critical.
 - The screen is kept awake (Wake Lock), because the player looks at the TV for long stretches.
 
 In the online view the same controls are below the playing field, and on a desktop the keys work as well (the arrows, the space bar), as in the original.
@@ -277,7 +289,7 @@ Done when: the game works between players in different networks and stands the b
 
 **Phase 4 – The whole arsenal.** The rest of the weapons, shields, guidance systems, parachutes, batteries, fuel and moving, tunnelling and the Contact Trigger, the rest of the walls, air viscosity, the Basic and Greedy scoring.
 
-**Phase 5 – Finishing.** Teams (Standard, Corporate, Vicious), the Synchronous mode, Free Market, the skies and the hostile environment (lightning), sounds, the ready-made comments of the tanks, a spectator mode.
+**Phase 5 – Finishing.** Teams (Standard, Corporate, Vicious), the Synchronous mode, Free Market, the skies and the hostile environment (lightning), sound effects (launches and explosions by weapon, see 3.7), the ready-made comments of the tanks, a spectator mode, the damage of the tank and the DANGER light on the controller (see 4.7).
 
 Online is phase 3 on purpose: with hotseat the core of the game can be played and tuned in the same room before the demands of a public service come along. The architecture is still the same from the start, so phase 3 is new views and joining logic, not a rewrite.
 
@@ -287,6 +299,7 @@ Online is phase 3 on purpose: with hotseat the core of the game can be played an
 - A determinism test: the same seed and the same inputs give the same checksum of the terrain on the server and in the browser.
 - Tests of the browser and the server together against the real server, as in sirad-web-app.
 - Scripted test clients that join a room and fire at random. They are for load and regression testing, not a feature of the game.
+- Returning after a lost connection: a player whose connection is lost stays in the game, shown as disconnected, and a device that returns must get everything it shows (see PROTOCOL.md, "Losing a connection"). To do with every feature that adds something a device shows: a test that loses the connection in the middle of it and returns, for the screen and for a controller. So far this covers the lobby; the playing field, the aim, the turn, the reload, the shop and the inventory each need theirs.
 - By hand: real phones (iOS Safari and Android Chrome) against a TV at the end of each phase.
 
 ## 7. Open decisions

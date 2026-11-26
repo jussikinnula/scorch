@@ -15,8 +15,14 @@ export default ({ mode }: { mode: string }) =>
     base: process.env.BASE_HREF,
     plugins: [react({})],
     define: {
-      // The address of the backend, e.g. https://scorch-api.onrender.com. In development the backend is the local one.
-      __API_URL__: JSON.stringify(process.env.API_URL ?? (mode === "development" ? "http://localhost:4101" : "")),
+      // The address of the backend, e.g. https://api.scorch.mobile. Without it the frontend uses, in development,
+      // the backend on the machine the page came from (see client/App.tsx).
+      __API_URL__: JSON.stringify(process.env.API_URL ?? ""),
+      // Whether the screen of a hotseat game has the button that opens test phones. In development it
+      // is there unless the variable says otherwise.
+      __PLAYER_TESTING_MODE__: JSON.stringify(
+        process.env.PLAYER_TESTING_MODE ? process.env.PLAYER_TESTING_MODE === "true" : mode === "development"
+      ),
       // The start of the hash of the commit the build was made of. It is given in the previews of pull requests.
       __COMMIT__: JSON.stringify((process.env.COMMIT_SHA ?? "").slice(0, 6))
     },

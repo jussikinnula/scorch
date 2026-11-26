@@ -38,6 +38,16 @@ body {
   justify-content: space-between;
 }
 
+.app__mismatch {
+  position: relative;
+  z-index: 20;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  background: #4a3a10;
+  color: var(--text);
+}
+
 .app__title {
   margin: 0;
   font-size: 1.5rem;
@@ -81,4 +91,329 @@ body {
 
 .view code {
   color: var(--text);
+}
+
+.note {
+  color: var(--dim);
+}
+
+.error {
+  color: var(--error);
+}
+
+a {
+  color: #8ab4ff;
+}
+
+/* Buttons */
+
+.button {
+  font: inherit;
+  padding: 0.75rem 1.25rem;
+  border: 1px solid #3a3a50;
+  border-radius: 0.5rem;
+  background: #1c1c2a;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.button--primary {
+  border-color: transparent;
+  background: #e8a020;
+  color: #101018;
+  font-weight: 700;
+}
+
+a.button {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.home__return {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  max-width: none;
+}
+
+.button--small {
+  padding: 0.25rem 0.75rem;
+}
+
+/* The players of a room */
+
+.players {
+  list-style: none;
+  margin: 1rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.players__player {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1.25rem;
+}
+
+.players__player--away .players__name {
+  color: var(--dim);
+  text-decoration: line-through;
+  text-decoration-color: #5a5a70;
+}
+
+.players__color {
+  flex: none;
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border-radius: 0.2em;
+  /* A player that is not connected has only the outline of the colour */
+  border: 0.15em solid transparent;
+}
+
+.players__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.players__status {
+  flex: none;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--error);
+  border-radius: 1rem;
+  color: var(--error);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* The button of a row stays on the right */
+.players__player .button {
+  margin-left: auto;
+}
+
+/* The big screen */
+
+.screen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3rem;
+  align-items: flex-start;
+}
+
+.screen__join {
+  flex: 0 1 26rem;
+  text-align: center;
+}
+
+.qr {
+  display: block;
+  width: 100%;
+  border-radius: 0.75rem;
+}
+
+.screen__hint {
+  max-width: none;
+  font-size: 1.25rem;
+}
+
+.screen__room {
+  flex: 1 1 20rem;
+}
+
+.screen__room h2 {
+  font-size: 2rem;
+}
+
+.screen__controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.stepper output {
+  min-width: 1.5em;
+  text-align: center;
+  font-size: 1.25rem;
+}
+
+/* The big screen during the game: the playing field covers the whole window */
+
+.field {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  background: #1b1d4a;
+}
+
+.game__notice {
+  position: fixed;
+  z-index: 11;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background: rgba(16, 16, 24, 0.85);
+  color: var(--text);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The phone: joining and the controller */
+
+.join form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 24rem;
+}
+
+.join input {
+  font: inherit;
+  font-size: 1.25rem;
+  padding: 0.75rem;
+  border: 1px solid #3a3a50;
+  border-radius: 0.5rem;
+  background: #1c1c2a;
+  color: var(--text);
+}
+
+.controller__name {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.controller__status {
+  color: var(--text);
+  font-size: 1.25rem;
+}
+
+/* The button that opens a test phone, in the player testing mode */
+.screen__join .button {
+  margin-top: 0.5rem;
+}
+
+/* The controls of the aim, on the phone */
+
+.aim {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 28rem;
+  margin: 0 auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.aim__dial {
+  display: block;
+  width: 100%;
+  /* Dragging the dial must not scroll the page */
+  touch-action: none;
+  cursor: pointer;
+}
+
+.aim__face {
+  fill: #1c1c2a;
+  stroke: #3a3a50;
+  stroke-width: 2;
+}
+
+.aim__tick {
+  stroke: #5a5a70;
+  stroke-width: 2;
+}
+
+.aim__turret {
+  stroke-width: 10;
+  stroke-linecap: round;
+}
+
+.aim__row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.aim__step {
+  flex: none;
+  width: 4rem;
+  font-size: 1.5rem;
+  padding: 0.5rem;
+  touch-action: manipulation;
+}
+
+.aim__value {
+  flex: 1;
+  text-align: center;
+  font-size: 1.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.aim__label {
+  color: var(--dim);
+  margin-top: 0.5rem;
+}
+
+.aim__power {
+  width: 100%;
+  height: 2.5rem;
+  accent-color: #e8a020;
+  touch-action: none;
+}
+
+/* The field for a speech bubble, on the phone */
+
+.say {
+  display: flex;
+  gap: 0.5rem;
+  max-width: 28rem;
+  margin: 1.5rem auto 0;
+}
+
+.say input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 0.75rem;
+  border: 1px solid #3a3a50;
+  border-radius: 0.5rem;
+  background: #1c1c2a;
+  color: var(--text);
+}
+
+.controller__leave {
+  margin-top: 2rem;
 }

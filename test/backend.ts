@@ -3,6 +3,7 @@ import { AddressInfo } from "node:net";
 import WebSocket from "ws";
 
 import { AppOptions, createApp } from "../server/app";
+import { ClientMessage, ServerMessage } from "../shared/protocol";
 
 export interface Backend {
   /** The address of the backend, as it is given to the frontend in API_URL. */
@@ -49,4 +50,69 @@ export class BrowserWebSocket extends WebSocket {
   constructor(url: string | URL) {
     super(url, { origin: window.location.origin });
   }
+}
+
+export interface TestClient {
+  /** The messages the backend has sent to the client, the greeting excluded. */
+  messages: ServerMessage[];
+  send: (message: ClientMessage) => void;
+  /** The next message of a type that the client has not been asked for yet. Waits for it if needed. */
+  next: <Type extends ServerMessage["type"]>(type: Type) => Promise<Extract<ServerMessage, { type: Type }>>;
+  close: () => void;
+}
+
+/**
+ * A bare client of the WebSocket API. A test of the frontend uses it as the other end: as the screen
+ * of a room when the frontend is a controller, and the other way round.
+ */
+export function openClient(backend: Backend, origin = "http://localhost"): Promise<TestClient> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(`${backend.url.replace("http", "ws")}/ws`, { origin });
+    const taken = new Set<ServerMessage>();
+    let wake: (() => void)[] = [];
+
+    const client: TestClient = {
+      messages: [],
+      send: (message) => socket.send(JSON.stringify(message)),
+      next: async (type) => {
+        for (;;) {
+          const message = client.messages.find((candidate) => candidate.type === type && !taken.has(candidate));
+          if (message) {
+            taken.add(message);
+            return message as never;
+          }
+          await new Promise<void>((resume) => wake.push(resume));
+        }
+      },
+      close: () => socket.close()
+    };
+    socket.on("error", reject);
+    socket.on("message", (data) => {
+      const message: ServerMessage = JSON.parse(String(data));
+      if (message.type === "hello") {
+        resolve(client);
+        return;
+      }
+      client.messages.push(message);
+      const waiting = wake;
+      wake = [];
+      waiting.forEach((resume) => resume());
+    });
+  });
+}
+
+/** A bare client that is the screen of a new room. */
+export async function openScreen(backend: Backend) {
+  const screen = await openClient(backend);
+  screen.send({ type: "create", mode: "hotseat" });
+  const { room } = await screen.next("created");
+  return { screen, room };
+}
+
+/** A bare client that joins a room as a controller, with the token a screen got. */
+export async function openController(backend: Backend, token: string, name: string) {
+  const controller = await openClient(backend);
+  controller.send({ type: "join", token, name });
+  await controller.next("joined");
+  return controller;
 }
