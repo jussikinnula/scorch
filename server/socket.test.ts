@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 
-import { PROTOCOL_VERSION } from "../shared/protocol";
+import { PROTOCOL_VERSION, socketPath } from "../shared/protocol";
 import { Backend, startBackend } from "../test/backend";
 import { isAllowedOrigin, MAX_MESSAGES_PER_SECOND, parseOrigins } from "./socket";
 
@@ -66,7 +66,7 @@ describe("the WebSocket API", () => {
 
   it("greets a client and answers a ping", async () => {
     backend = await startBackend({ allowedOrigins: [ORIGIN] });
-    expect(await talk("/ws", ORIGIN, 2, ['{"type":"ping"}'])).toEqual([
+    expect(await talk(socketPath(), ORIGIN, 2, ['{"type":"ping"}'])).toEqual([
       { type: "hello", protocol: PROTOCOL_VERSION },
       { type: "pong" }
     ]);
@@ -74,13 +74,16 @@ describe("the WebSocket API", () => {
 
   it("refuses what is not a message of the API", async () => {
     backend = await startBackend();
-    const messages = await talk("/ws", ORIGIN, 4, ["not json", "null", '{"type":"nonsense"}']);
+    const messages = await talk(socketPath(), ORIGIN, 4, ["not json", "null", '{"type":"nonsense"}']);
     expect(messages.slice(1)).toEqual(Array(3).fill({ type: "error", code: "bad-message" }));
   });
 
   it("refuses the messages of the game from a client that is not in one", async () => {
     backend = await startBackend();
-    const messages = await talk("/ws", ORIGIN, 3, ['{"type":"aim","angle":45}', '{"type":"say","text":"Hello"}']);
+    const messages = await talk(socketPath(), ORIGIN, 3, [
+      '{"type":"aim","angle":45}',
+      '{"type":"say","text":"Hello"}'
+    ]);
     expect(messages.slice(1)).toEqual([
       { type: "error", code: "not-allowed", re: "aim" },
       { type: "error", code: "not-allowed", re: "say" }
@@ -89,12 +92,12 @@ describe("the WebSocket API", () => {
 
   it("creates a room for a screen and lets a controller join it", async () => {
     backend = await startBackend();
-    const screen = await talk("/ws", ORIGIN, 4, ['{"type":"create","mode":"hotseat"}']);
+    const screen = await talk(socketPath(), ORIGIN, 4, ['{"type":"create","mode":"hotseat"}']);
     expect(screen.map((message) => (message as { type: string }).type)).toEqual(["hello", "created", "room", "token"]);
 
     // The screen has gone, but its room and the token are still there
     const { token } = screen[3] as { token: string };
-    const controller = await talk("/ws", ORIGIN, 3, [JSON.stringify({ type: "join", token, name: "Ann" })]);
+    const controller = await talk(socketPath(), ORIGIN, 3, [JSON.stringify({ type: "join", token, name: "Ann" })]);
     expect(controller[1]).toMatchObject({ type: "joined", id: 0 });
     expect(controller[2]).toMatchObject({
       type: "room",
@@ -105,16 +108,28 @@ describe("the WebSocket API", () => {
   it("drops the messages of a client that sends too many", async () => {
     backend = await startBackend();
     const pings = Array(MAX_MESSAGES_PER_SECOND + 20).fill('{"type":"ping"}');
-    const messages = await talk("/ws", ORIGIN, MAX_MESSAGES_PER_SECOND + 2, pings);
+    const messages = await talk(socketPath(), ORIGIN, MAX_MESSAGES_PER_SECOND + 2, pings);
     expect(messages.filter((message) => (message as { type: string }).type === "pong").length).toBeLessThanOrEqual(
       MAX_MESSAGES_PER_SECOND
     );
     expect(messages).toContainEqual({ type: "error", code: "rate-limited" });
   });
 
+  it("does nothing a client of another version asks for, but tells its own version", async () => {
+    backend = await startBackend();
+    const create = '{"type":"create","mode":"hotseat"}';
+    for (const path of ["/ws", "/ws?protocol=0", `/ws?protocol=${PROTOCOL_VERSION + 1}`, "/ws?protocol=x"]) {
+      expect(await talk(path, ORIGIN, 3, [create, '{"type":"ping"}']), path).toEqual([
+        { type: "hello", protocol: PROTOCOL_VERSION },
+        { type: "error", code: "wrong-version", re: "create" },
+        { type: "pong" }
+      ]);
+    }
+  });
+
   it("refuses other origins and other paths", async () => {
     backend = await startBackend({ allowedOrigins: [ORIGIN] });
-    await expect(talk("/ws", "https://evil.example", 1)).rejects.toThrow("403");
+    await expect(talk(socketPath(), "https://evil.example", 1)).rejects.toThrow("403");
     await expect(talk("/other", ORIGIN, 1)).rejects.toThrow("403");
   });
 });

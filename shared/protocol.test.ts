@@ -1,7 +1,11 @@
 // @vitest-environment node
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
-import { isClientMessage, isRoomSettings, MAX_NAME_LENGTH, MAX_SAY_LENGTH } from "./protocol";
+import { isClientMessage, isRoomSettings, MAX_NAME_LENGTH, MAX_SAY_LENGTH, PROTOCOL_VERSION } from "./protocol";
 
 describe("isClientMessage", () => {
   it("accepts the messages of the API", () => {
@@ -81,5 +85,36 @@ describe("isRoomSettings", () => {
     expect(isRoomSettings({ maxPlayers: 8.5 })).toBe(false);
     expect(isRoomSettings({})).toBe(false);
     expect(isRoomSettings(null)).toBe(false);
+  });
+});
+
+describe("the version of the protocol", () => {
+  /**
+   * The fingerprint of the protocol of each version: of everything in protocol.ts from the limits
+   * on, without the comments and the spaces.
+   *
+   * When this test fails, the protocol has changed. Raise PROTOCOL_VERSION by one and add the new
+   * fingerprint, which the failure tells, here under the new version. Do not change the fingerprint
+   * of a version that has been deployed: a client and a server of the same version must agree.
+   */
+  const FINGERPRINTS: Record<number, string> = {
+    2: "6fd94d4f0804eed9"
+  };
+
+  it("is raised when the protocol changes", () => {
+    const source = readFileSync(fileURLToPath(new URL("./protocol.ts", import.meta.url)), "utf8");
+    const start = source.indexOf("// Limits.");
+    expect(start).toBeGreaterThan(0);
+    const code = source
+      .slice(start)
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "")
+      .replace(/\s+/g, "");
+    const fingerprint = createHash("sha256").update(code).digest("hex").slice(0, 16);
+
+    expect(
+      FINGERPRINTS[PROTOCOL_VERSION],
+      `The protocol is not the one of version ${PROTOCOL_VERSION}: raise PROTOCOL_VERSION and add "${fingerprint}" for the new version`
+    ).toBe(fingerprint);
   });
 });

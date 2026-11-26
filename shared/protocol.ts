@@ -11,8 +11,21 @@
 /** The path of the WebSocket API on the server. */
 export const SOCKET_PATH = "/ws";
 
-/** The version of the API. A frontend that is older than the server can tell the user to reload. */
-export const PROTOCOL_VERSION = 1;
+/**
+ * The version of the API. It is raised by one whenever anything in the API changes: a message, a
+ * field, a limit, or what a message means. A client and a server talk only if they have the same
+ * version: there is no point in trying when one does not know what the other means.
+ *
+ * A client tells its version in the address it connects to (see socketPath), the server in its
+ * greeting. The test of this file fails when the messages change and the version does not.
+ */
+export const PROTOCOL_VERSION = 2;
+
+/** The name of the part of the address of the WebSocket API where a client tells its version. */
+export const PROTOCOL_PARAMETER = "protocol";
+
+/** The path a client of this version connects to, e.g. /ws?protocol=2. */
+export const socketPath = () => `${SOCKET_PATH}?${PROTOCOL_PARAMETER}=${PROTOCOL_VERSION}`;
 
 // Limits. The server enforces them, and the frontend uses them to not send what would be refused.
 
@@ -99,6 +112,8 @@ export interface FieldState {
 // The messages
 
 export type ErrorCode =
+  /** The client has another version of the API than the server. Nothing but a ping is answered. */
+  | "wrong-version"
   /** The message was not a message of the API. */
   | "bad-message"
   /** The token of the QR code is not valid (any more). */

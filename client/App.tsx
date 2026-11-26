@@ -1,8 +1,6 @@
-import React, { useState } from "react";
+import React from "react";
 
-import { PROTOCOL_VERSION } from "../shared/protocol";
-
-import { useApiConnection, useApiMessages } from "./hooks/useApiConnection";
+import { useApiConnection } from "./hooks/useApiConnection";
 import { useRoute } from "./hooks/useRoute";
 import Controller from "./views/Controller";
 import Home from "./views/Home";
@@ -29,11 +27,6 @@ function defaultApiUrl() {
 export default function App({ apiUrl = defaultApiUrl(), playerTesting = __PLAYER_TESTING_MODE__ }: Props) {
   const route = useRoute();
   const api = useApiConnection(apiUrl);
-  // The frontend and the backend are deployed separately, so for a moment one can be newer than the other
-  const [mismatch, setMismatch] = useState(false);
-  useApiMessages(api, (message) => {
-    if (message.type === "hello") setMismatch(message.protocol !== PROTOCOL_VERSION);
-  });
 
   return (
     <div className={`app app--${route.view}`}>
@@ -50,9 +43,14 @@ export default function App({ apiUrl = defaultApiUrl(), playerTesting = __PLAYER
           <span className={`connection__light${api.connected ? " connection__light--on" : ""}`} />
         </div>
       </header>
-      {mismatch && (
+      {api.mismatch === "backend-older" && (
         <p className="app__mismatch" role="alert">
-          The game is being updated. Reload the page in a moment.{" "}
+          The server is being updated. The game continues by itself in a moment.
+        </p>
+      )}
+      {api.mismatch === "backend-newer" && (
+        <p className="app__mismatch" role="alert">
+          The game has been updated. Reload the page to continue.{" "}
           <button className="button button--small" onClick={() => window.location.reload()}>
             Reload
           </button>

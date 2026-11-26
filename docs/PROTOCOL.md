@@ -2,7 +2,7 @@
 
 How the clients and the server talk to each other. The types of the messages and the limits are in [`shared/protocol.ts`](../shared/protocol.ts), which both sides import; this document tells how they are used and why.
 
-Status: everything up to "Later" is implemented (protocol version 1): the rooms (creating one, joining it with the QR code, the lobby, returning after a lost connection), the playing field, turning the turret and the speech bubbles.
+Status: everything up to "Later" is implemented (protocol version 2): the rooms (creating one, joining it with the QR code, the lobby, returning after a lost connection), the playing field, turning the turret and the speech bubbles.
 
 The scope is the first playable slice of [PLAN.md](PLAN.md): a hotseat room, joining with the QR code, tanks on the screen, turning the turret and the speech bubbles. Firing, the shop and online rooms are sketched at the end, so that this design leaves room for them.
 
@@ -44,13 +44,22 @@ A token is short on purpose, to keep the QR code coarse enough to scan from acro
 
 ```
 client                              server
-  │ ── (WebSocket opens) ─────────────▶ │
+  │ ── /ws?protocol=2 ────────────────▶ │
   │ ◀──────── hello { protocol } ────── │
   │ ── ping ──────────────────────────▶ │   every 25 s
   │ ◀──────────────────────── pong ──── │
 ```
 
-`protocol` is `PROTOCOL_VERSION`. A frontend built for another version tells the user that the game is being updated and offers to reload the page. This matters because the previews of pull requests use the production server.
+### The version of the protocol
+
+A client and a server talk only if they have the same version of the protocol (`PROTOCOL_VERSION`). The two are deployed separately, and the previews of pull requests use the production server, so they do meet each other in different versions.
+
+- The client tells its version in the address it connects to: `/ws?protocol=2`.
+- The server tells its version in the greeting: `hello { protocol }`.
+- **The server** greets a client of another version (or one that does not tell its version), so that the client learns the version of the server, and answers its pings. Everything else it sends is refused with the error `wrong-version`, and nothing is done.
+- **The client** sends nothing before the greeting, and nothing at all if the version of the greeting is not its own. To the views this is the same as having no connection. The page tells which way it is: if the server is older, it is being updated, and the game goes on by itself when the server comes back with the right version; if the server is newer, the page is an old one and offers to reload itself.
+
+**The version is raised by one whenever the protocol changes**: a message, a field, a limit, or what a message means. A test (`shared/protocol.test.ts`) keeps a fingerprint of the messages, the limits and the checks of each version, and fails when they change without the version being raised. It cannot see a change that is only in what the server does with a message: for those the version is raised by hand.
 
 A client reconnects by itself when the connection is lost (`client/api/connection.ts`). After each `hello` it tells the server again who it is, with `host` or `resume`.
 
@@ -165,18 +174,19 @@ controller                          server                          screen
 
 When the server refuses something, it answers `error { code, re }`, where `re` is the type of the message that was refused. An error that is not an answer to a message (`replaced`, a removed player, a removed room) has no `re`.
 
-| Code           | Meaning                                                                                  |
-| -------------- | ---------------------------------------------------------------------------------------- |
-| `bad-message`  | Not a message of the API: not JSON, an unknown type, a missing or wrong field.           |
-| `bad-token`    | The join token is not valid (any more).                                                  |
-| `no-room`      | There is no such room (any more).                                                        |
-| `no-session`   | The key does not open the room.                                                          |
-| `room-full`    | The room has its maximum number of players.                                              |
-| `bad-name`     | The name was refused (the word filter, later).                                           |
-| `not-allowed`  | The client is not in a room, or its role may not do this.                                |
-| `wrong-phase`  | The room is not in a phase where this can be done, e.g. joining a game that has started. |
-| `rate-limited` | Too many messages.                                                                       |
-| `replaced`     | Another connection took over this screen or player. The connection is closed.            |
+| Code            | Meaning                                                                                  |
+| --------------- | ---------------------------------------------------------------------------------------- |
+| `wrong-version` | The client has another version of the protocol than the server.                          |
+| `bad-message`   | Not a message of the API: not JSON, an unknown type, a missing or wrong field.           |
+| `bad-token`     | The join token is not valid (any more).                                                  |
+| `no-room`       | There is no such room (any more).                                                        |
+| `no-session`    | The key does not open the room.                                                          |
+| `room-full`     | The room has its maximum number of players.                                              |
+| `bad-name`      | The name was refused (the word filter, later).                                           |
+| `not-allowed`   | The client is not in a room, or its role may not do this.                                |
+| `wrong-phase`   | The room is not in a phase where this can be done, e.g. joining a game that has started. |
+| `rate-limited`  | Too many messages.                                                                       |
+| `replaced`      | Another connection took over this screen or player. The connection is closed.            |
 
 A connection that sends more than 40 messages within a second gets `rate-limited` once, and the extra messages are dropped.
 
