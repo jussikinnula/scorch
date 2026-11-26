@@ -269,7 +269,7 @@ Both are behind HTTPS, which the phones require (Wake Lock, vibration). Three th
 
 1. **The rooms are in the memory of the server.** A deploy or a restart of the server ends the games in progress. This is accepted at first: the deploys are timed, and the state is not stored on disk.
 2. **The free plan of Render sleeps.** The service stops when there has been no traffic for a while, and waking up typically takes tens of seconds. The front page must show "the server is starting", not an error. The free plan also has little processing power, so a 60 Hz simulation of several live rooms at once must be measured before the public online phase; a paid plan is likely by phase 3 at the latest.
-3. **The previews use the production server.** The preview of a pull request connects to the same server as production, so a change in the protocol can break one of them. The `hello` message has the version of the protocol, with which the browser notices the difference and tells about it.
+3. **The previews use the production server, and the frontend and the server are deployed separately.** So a frontend and a server of different versions of the protocol do meet. They do not try to talk then: the versions must match (see PROTOCOL.md, "The version of the protocol"), the page tells what is going on, and the version is raised whenever the protocol changes.
 
 In development the phones reach the Vite server of the computer over the local network or with ngrok.
 

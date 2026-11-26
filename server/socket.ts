@@ -1,7 +1,7 @@
 import { IncomingMessage, Server } from "http";
 import { WebSocket, WebSocketServer } from "ws";
 
-import { isClientMessage, PROTOCOL_VERSION, ServerMessage, SOCKET_PATH } from "../shared/protocol";
+import { isClientMessage, PROTOCOL_PARAMETER, PROTOCOL_VERSION, ServerMessage, SOCKET_PATH } from "../shared/protocol";
 import Rooms, { RoomsOptions } from "./rooms";
 
 /** The largest message a client can send, in bytes. The messages of the API are small. */
@@ -35,7 +35,8 @@ export function isAllowedOrigin(origin: string | undefined, allowedOrigins: stri
  * The WebSocket API. The messages are described in shared/protocol.ts and docs/PROTOCOL.md.
  *
  * The server greets a new client with "hello" and answers a "ping" with a "pong". The messages
- * about the rooms are handled by Rooms. What is refused is answered with an "error".
+ * about the rooms are handled by Rooms. What is refused is answered with an "error". A client that
+ * speaks another version of the API than the server gets only the greeting and the pongs.
  */
 export function createSocketServer(server: Server, options: SocketOptions = {}) {
   const { allowedOrigins = [], heartbeatInterval = HEARTBEAT_INTERVAL } = options;
@@ -71,7 +72,13 @@ export function createSocketServer(server: Server, options: SocketOptions = {}) 
     sockets.handleUpgrade(request, socket, head, (client) => sockets.emit("connection", client, request));
   });
 
-  sockets.on("connection", (client: WebSocket) => {
+  sockets.on("connection", (client: WebSocket, request: IncomingMessage) => {
+    // A client tells the version of the API it speaks in the address. One that speaks another version
+    // than the server, or does not tell, is greeted, so that it learns the version of the server,
+    // but nothing it asks for is done.
+    const { searchParams } = new URL(request.url ?? "/", "http://localhost");
+    const sameVersion = searchParams.get(PROTOCOL_PARAMETER) === String(PROTOCOL_VERSION);
+
     alive.add(client);
     client.on("pong", () => alive.add(client));
     client.on("error", () => client.terminate());
@@ -91,6 +98,7 @@ export function createSocketServer(server: Server, options: SocketOptions = {}) 
       }
 
       if (message.type === "ping") send(client, { type: "pong" });
+      else if (!sameVersion) send(client, { type: "error", code: "wrong-version", re: message.type });
       // The game is not made yet: what the rooms do not handle is refused
       else if (!rooms.handle(client, message)) send(client, { type: "error", code: "not-allowed", re: message.type });
     });

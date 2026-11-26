@@ -1,3 +1,5 @@
+import { PROTOCOL_PARAMETER, PROTOCOL_VERSION, SOCKET_PATH } from "../../shared/protocol";
+
 /** How long to wait before connecting again, in milliseconds: longer after each failed attempt. */
 export const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 15000];
 /** How often the connection is checked with a ping, in milliseconds. */
@@ -18,12 +20,15 @@ export interface ConnectionOptions {
   pongTimeout?: number;
 }
 
-/** The address of the WebSocket API of a backend, e.g. https://api.sirad.fi -> wss://api.sirad.fi/ws. */
+/**
+ * The address of the WebSocket API of a backend, e.g. https://api.scorch.mobile ->
+ * wss://api.scorch.mobile/ws?protocol=2. The address tells the version of the API the client speaks.
+ */
 export function toSocketUrl(apiUrl: string) {
   const url = new URL(apiUrl);
   url.protocol = url.protocol === "https:" || url.protocol === "wss:" ? "wss:" : "ws:";
-  url.pathname = `${url.pathname.replace(/\/$/, "")}/ws`;
-  url.search = "";
+  url.pathname = `${url.pathname.replace(/\/$/, "")}${SOCKET_PATH}`;
+  url.search = `${PROTOCOL_PARAMETER}=${PROTOCOL_VERSION}`;
   url.hash = "";
   return url.toString();
 }

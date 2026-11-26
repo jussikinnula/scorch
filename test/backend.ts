@@ -3,7 +3,7 @@ import { AddressInfo } from "node:net";
 import WebSocket from "ws";
 
 import { AppOptions, createApp } from "../server/app";
-import { ClientMessage, ServerMessage } from "../shared/protocol";
+import { ClientMessage, ServerMessage, socketPath } from "../shared/protocol";
 
 export interface Backend {
   /** The address of the backend, as it is given to the frontend in API_URL. */
@@ -67,7 +67,7 @@ export interface TestClient {
  */
 export function openClient(backend: Backend, origin = "http://localhost"): Promise<TestClient> {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(`${backend.url.replace("http", "ws")}/ws`, { origin });
+    const socket = new WebSocket(`${backend.url.replace("http", "ws")}${socketPath()}`, { origin });
     const taken = new Set<ServerMessage>();
     let wake: (() => void)[] = [];
 
