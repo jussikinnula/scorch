@@ -96,6 +96,24 @@ function drawBackground(field: FieldState, width: number, height: number, layout
 function drawTanks(context: CanvasRenderingContext2D, field: FieldState, players: PlayerInfo[]) {
   for (const tank of field.tanks) {
     const player = players.find((candidate) => candidate.id === tank.id);
+    if (tank.energy <= 0) {
+      // A destroyed tank is a wreck: a dark heap with no turret
+      context.fillStyle = "#2a2a30";
+      context.beginPath();
+      context.moveTo(tank.x - TANK_WIDTH / 2, tank.y);
+      context.lineTo(tank.x - TANK_WIDTH / 3, tank.y - TANK_HEIGHT / 2);
+      context.lineTo(tank.x - 2, tank.y - TANK_HEIGHT / 3);
+      context.lineTo(tank.x + TANK_WIDTH / 4, tank.y - TANK_HEIGHT * 0.7);
+      context.lineTo(tank.x + TANK_WIDTH / 2, tank.y);
+      context.fill();
+      if (player) {
+        context.font = "600 14px system-ui, sans-serif";
+        context.textAlign = "center";
+        context.fillStyle = "rgba(255, 255, 255, 0.45)";
+        context.fillText(player.name, tank.x, tank.y - TANK_HEIGHT - 6);
+      }
+      continue;
+    }
     const color = playerColor(tank.id);
     // The tank of a player whose device is not connected is faded
     context.globalAlpha = player?.connected === false ? 0.4 : 1;
@@ -129,6 +147,12 @@ function drawTanks(context: CanvasRenderingContext2D, field: FieldState, players
       context.fillStyle = "#fff";
       context.fillText(player.name, tank.x, tank.y - TANK_HEIGHT - TURRET_LENGTH - 10);
     }
+    // The energy of the tank, as a bar under its name
+    const bar = { x: tank.x - 16, y: tank.y - TANK_HEIGHT - TURRET_LENGTH - 6, width: 32, height: 3 };
+    context.fillStyle = "rgba(0, 0, 0, 0.5)";
+    context.fillRect(bar.x, bar.y, bar.width, bar.height);
+    context.fillStyle = tank.energy > 50 ? "#3ddc84" : tank.energy > 25 ? "#ffd23f" : "#ff5a5a";
+    context.fillRect(bar.x, bar.y, (bar.width * tank.energy) / 100, bar.height);
     context.globalAlpha = 1;
   }
 }

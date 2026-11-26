@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 
-import { AIM_INTERVAL, RoomState } from "../../shared/protocol";
+import { AIM_INTERVAL, MAX_ENERGY, RoomState } from "../../shared/protocol";
 import { playerColor } from "../colors";
 import AimControl from "../components/AimControl";
 import FireControl from "../components/FireControl";
@@ -32,6 +32,10 @@ export default function Controller({ api, room }: Props) {
   const [self, setSelf] = useState<number | null>(null);
   const selfNow = useRef<number | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
+  /** The energy of the tank of the player, as the server told it. A tank with none is destroyed. */
+  const [energy, setEnergy] = useState(MAX_ENERGY);
+  /** The result of the round that just ended, until the next round starts. */
+  const [result, setResult] = useState<{ round: number; winner: number | null } | null>(null);
   // The reload of the tank that is going on, as the server told it
   const [reload, setReload] = useState({ until: 0, time: 0 });
   // What the player last said, as the server showed it, for as long as the bubble is on the screen
@@ -78,6 +82,14 @@ export default function Controller({ api, room }: Props) {
     // The server tells the aim only when the controller cannot know it: at first and after returning
     else if (message.type === "aim" && message.id === selfNow.current) {
       setAim({ angle: message.angle, power: message.power });
+    } else if (message.type === "energy") {
+      setEnergy(message.energy);
+      // The power cannot be more than the energy allows
+      setAim((current) => current && { ...current, power: Math.min(current.power, message.energy * 10) });
+      // A whole tank after a round has ended is the start of the next round
+      if (message.energy === MAX_ENERGY) setResult(null);
+    } else if (message.type === "roundOver") {
+      setResult({ round: message.round, winner: message.winner });
     } else if (message.type === "reload") {
       setReload({ until: performance.now() + message.time, time: message.time });
     } else if (message.type === "say" && message.id === selfNow.current) {
@@ -131,9 +143,38 @@ export default function Controller({ api, room }: Props) {
           Waiting for the game to start…
         </p>
       )}
-      {state.phase === "playing" && aim && (
+      {state.phase === "playing" && result && (
+        <p className="controller__result" role="alert">
+          {result.winner === null
+            ? "Nobody is left."
+            : result.winner === me.id
+              ? "You won the round!"
+              : `${state.players.find((player) => player.id === result.winner)?.name ?? "?"} won the round.`}{" "}
+          The next round starts in a moment.
+        </p>
+      )}
+      {state.phase === "playing" && aim && energy <= 0 && (
         <>
-          <AimControl angle={aim.angle} power={aim.power} color={playerColor(me.id)} onChange={changeAim} />
+          <p className="controller__status" role="status">
+            Your tank was destroyed.
+          </p>
+          <SayControl onSay={(text) => api.send({ type: "say", text })} />
+          {said !== undefined && <p className="note">You said: {said}</p>}
+        </>
+      )}
+      {state.phase === "playing" && aim && energy > 0 && (
+        <>
+          <p className="controller__energy" aria-label="Energy">
+            <span style={{ width: `${energy}%` }} />
+            {energy}
+          </p>
+          <AimControl
+            angle={aim.angle}
+            power={aim.power}
+            maxPower={energy * 10}
+            color={playerColor(me.id)}
+            onChange={changeAim}
+          />
           <FireControl
             reloadedAt={reload.until}
             reloadTime={reload.time}

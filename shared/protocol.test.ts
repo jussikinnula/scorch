@@ -100,7 +100,8 @@ describe("the version of the protocol", () => {
    */
   const FINGERPRINTS: Record<number, string> = {
     2: "6fd94d4f0804eed9",
-    3: "33e986dc878d9fea"
+    3: "33e986dc878d9fea",
+    4: "d252a3503257c8fd"
   };
 
   it("is raised when the protocol changes", () => {

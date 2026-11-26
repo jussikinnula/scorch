@@ -217,7 +217,9 @@ Guidance does not work with MIRV, Death's Head, Riot Charge, Riot Blast or Plasm
 
 `SCORCH.CFG` is written when Save Changes is chosen in the main menu (the key `c`). It is a text file of `KEY=value` lines with DOS line endings, and the game reads it at start. Editing it is the easy way to set up a measurement: e.g. `MAX_WIND=0`, `TRACE=On` and `GRAPHICS_MODE=640x480`. The default graphics mode is `360x480`; the others are `320x200`, `320x240`, `320x400`, `320x480`, `640x400`, `640x480`, `800x600` and `1024x768`.
 
-In the game, Up and Down change the power by 1 and Page Up and Page Down by 15, Left and Right turn the turret by a degree, and Space fires.
+In the game, Up and Down change the power by 1 and Page Up and Page Down by 15, Left and Right turn the turret by a degree, and Space fires. The turret turns through 180 degrees: Left turns it anticlockwise, from pointing right (0) over straight up (90) to pointing left, and the status bar shows the angle from the horizon on the side the turret is on. A new tank has a power of 200. With `FIRE_DELAY=0` a shot is over at once, and its trace is drawn as dots.
+
+The scripts of the measurements are in `tools/original`.
 
 ### Ballistics
 
@@ -231,6 +233,21 @@ Measured with Trace Paths on and no wind: the trace of each shot was read from a
 
 SCORCH takes 640x480 as its reference: a pixel of the original is two pixels of the 1280 wide playing field, and a shot at full power and 45 degrees flies 3.125 widths of the field. How long a step of the original takes was not measured, because it depends on the Firing Delay setting and on the speed of the computer; SCORCH chooses it so that a shot across the whole field at 45 degrees is in the air for three seconds (`shared/sim/shots.ts`).
 
+### Damage
+
+Measured with Baby Missiles and Tanks Fall off, reading the energy of a tank from the status bar on its turn (Max is ten times the energy).
+
+- **A Baby Missile that comes down on a tank destroys it**, at full energy: a tank that fired straight up at a power of 100 was destroyed by its own shot, and the round ended.
+- **A Baby Missile that lands beside a tank takes part of its energy**: two such hits took 21 and 31 of the 100.
+- A hit on a mountain 60 pixels or more from the tank took nothing.
+- The crater of a Baby Missile at 640x480 is about 180 pixels of dirt when it hits a slope, which fits half a circle of a radius of 10: the blast radius of the equipment list is in pixels of the screen at this graphics mode.
+
+SCORCH uses the simplest rule that fits all of these (`shared/sim/shots.ts`): an explosion at the body of a tank takes all of its energy, and the damage falls evenly with the distance from the body to nothing a blast radius away. The shape of the fall is not measured: for the two hits beside a tank the energy is known but the distance is not, because the place of the explosion could not be read accurately enough.
+
+### Scoring (first finding)
+
+With the Standard scoring and no cash at start, the rankings after a round that a tank ended by destroying itself were: the survivor one win and $5,000, the one that destroyed itself no wins and $-1,500. So surviving a round is worth money, destroying oneself costs, and the money of a player can be negative.
+
 ## To be measured
 
 The manual does not give these, and the simulation needs them. They are measured by running the game, and the results are added to this file.
@@ -238,7 +255,7 @@ The manual does not give these, and the simulation needs them. They are measured
 **Before phase 1**
 
 - How much a unit of wind bends a trajectory. (The first try got a wind of 8 and shots into a mountain: it needs a strong wind and open ground.)
-- The damage of an explosion by distance, for each weapon of phase 1.
+- The damage of an explosion by the distance from the tank, for each weapon of phase 1. The energy before and after a hit can be read; what is missing is a good enough place for the explosion. The dotted trace ends several pixels short, and a circle fitted to the crater is thrown off by the traces drawn over the dirt. Next: traces off, and the circle fitted only to the dirt that went.
 - Fall damage by height.
 - The points of the Standard scoring: for damage, for a kill, for surviving, and the penalty for hitting oneself. This also decides the default of Cash at Start in PLAN.md.
 - How interest is paid (on what amount, at which moment, how it is rounded).

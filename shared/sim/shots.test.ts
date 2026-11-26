@@ -2,8 +2,17 @@
 import { describe, expect, it } from "vitest";
 
 import { FieldState, TankState } from "../protocol";
-import { FIELD_HEIGHT, FIELD_WIDTH, TANK_HEIGHT, TURRET_LENGTH } from "./field";
-import { BABY_MISSILE_RADIUS, GRAVITY, launch, Shot, SPEED_PER_POWER, stepShots, STEPS_PER_SECOND } from "./shots";
+import { FIELD_HEIGHT, FIELD_WIDTH, TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "./field";
+import {
+  BABY_MISSILE_RADIUS,
+  damageTo,
+  GRAVITY,
+  launch,
+  Shot,
+  SPEED_PER_POWER,
+  stepShots,
+  STEPS_PER_SECOND
+} from "./shots";
 import { applyTerrainOp, carve, isDirt, settle, Terrain } from "./terrain";
 
 /** A field of level ground at the given y, with the given tanks on it. */
@@ -11,7 +20,7 @@ const flatField = (ground: number, tanks: Partial<TankState>[] = []): FieldState
   width: FIELD_WIDTH,
   height: FIELD_HEIGHT,
   terrain: Array.from({ length: FIELD_WIDTH }, () => [ground, FIELD_HEIGHT]),
-  tanks: tanks.map((tank, id) => ({ id, x: 100, y: ground, angle: 45, power: 500, ...tank }))
+  tanks: tanks.map((tank, id) => ({ id, x: 100, y: ground, angle: 45, power: 500, energy: 100, ...tank }))
 });
 
 /** Flies a projectile until it is gone or has exploded. */
@@ -85,7 +94,7 @@ describe("the terrain", () => {
 
 describe("a projectile", () => {
   it("starts at the tip of the turret, at a speed by the power and the angle", () => {
-    const tank: TankState = { id: 3, x: 100, y: 500, angle: 90, power: 400 };
+    const tank: TankState = { id: 3, x: 100, y: 500, angle: 90, power: 400, energy: 100 };
     const up = launch(tank, 7);
     expect(up).toMatchObject({ id: 7, owner: 3, y: 500 - TANK_HEIGHT - TURRET_LENGTH });
     expect(up.x).toBeCloseTo(100);
@@ -113,7 +122,7 @@ describe("a projectile", () => {
     const field = flatField(600);
     // The power with which a shot at 45 degrees flies 1000 pixels
     const power = Math.sqrt(1000 * GRAVITY) / SPEED_PER_POWER;
-    const shot = launch({ id: 0, x: 100, y: 600, angle: 45, power }, 1);
+    const shot = launch({ id: 0, x: 100, y: 600, angle: 45, power, energy: 100 }, 1);
     const { steps, events } = fly(field, shot);
 
     // It starts a turret above the ground, so it flies a little longer and further than from the ground
@@ -128,7 +137,7 @@ describe("a projectile", () => {
 
   it("rises as high as the physics say", () => {
     const field = flatField(700);
-    const shot = launch({ id: 0, x: 640, y: 700, angle: 90, power: 300 }, 1);
+    const shot = launch({ id: 0, x: 640, y: 700, angle: 90, power: 300, energy: 100 }, 1);
     const { highest } = fly(field, shot);
     const rise = (300 * SPEED_PER_POWER) ** 2 / (2 * GRAVITY);
     expect(shot.y - highest).toBeGreaterThan(rise * 0.97);
@@ -137,22 +146,23 @@ describe("a projectile", () => {
 
   it("comes back when it flies over the top of the field", () => {
     const field = flatField(700);
-    const { highest, events } = fly(field, launch({ id: 0, x: 640, y: 700, angle: 85, power: 900 }, 1));
+    const { highest, events } = fly(field, launch({ id: 0, x: 640, y: 700, angle: 85, power: 900, energy: 100 }, 1));
     expect(highest).toBeLessThan(0);
     expect(events[0]).toMatchObject({ event: "explode", y: 700 });
   });
 
   it("is gone when it flies far past the side of the field", () => {
     const field = flatField(700);
-    const { events } = fly(field, launch({ id: 0, x: 100, y: 700, angle: 135, power: 600 }, 1));
+    const { events } = fly(field, launch({ id: 0, x: 100, y: 700, angle: 135, power: 600, energy: 100 }, 1));
     expect(events).toEqual([]);
   });
 
   it("explodes where it hits the ground: the dirt is destroyed and the terrain is told", () => {
     const field = flatField(600);
-    const { events } = fly(field, launch({ id: 0, x: 200, y: 600, angle: 60, power: 300 }, 1));
+    const { events } = fly(field, launch({ id: 0, x: 200, y: 600, angle: 60, power: 300, energy: 100 }, 1));
 
     const [explosion, terrain] = events;
+    expect(events).toHaveLength(2);
     expect(explosion).toMatchObject({ event: "explode", y: 600, radius: BABY_MISSILE_RADIUS });
     const { x } = explosion as { x: number };
     expect(terrain).toEqual({
@@ -167,7 +177,7 @@ describe("a projectile", () => {
   it("does not jump over a thin wall, however fast it flies", () => {
     const field = flatField(600);
     for (let x = 400; x < 403; x++) field.terrain[x] = [100, FIELD_HEIGHT];
-    const { events } = fly(field, launch({ id: 0, x: 100, y: 600, angle: 20, power: 1000 }, 1));
+    const { events } = fly(field, launch({ id: 0, x: 100, y: 600, angle: 20, power: 1000, energy: 100 }, 1));
     expect(events[0]).toMatchObject({ event: "explode" });
     expect((events[0] as { x: number }).x).toBeGreaterThanOrEqual(399);
     expect((events[0] as { x: number }).x).toBeLessThanOrEqual(403);
@@ -196,5 +206,53 @@ describe("a projectile", () => {
     const { steps } = fly(field, launch(field.tanks[0], 1));
     // It goes up and comes down on the tank, which takes a while
     expect(steps).toBeGreaterThan(STEPS_PER_SECOND);
+  });
+});
+
+describe("the damage of an explosion", () => {
+  const tank: TankState = { id: 0, x: 500, y: 600, angle: 45, power: 500, energy: 100 };
+  const side = 500 + TANK_WIDTH / 2;
+
+  it("is all of the energy when the explosion is at the body of the tank", () => {
+    expect(damageTo(tank, 500, 600 - TANK_HEIGHT, 20)).toBe(100);
+    expect(damageTo(tank, side, 600, 20)).toBe(100);
+    expect(damageTo(tank, 495, 595, 20)).toBe(100);
+  });
+
+  it("is less the further the explosion is from the body, and none a radius away", () => {
+    const beside = (distance: number) => damageTo(tank, side + distance, 600, 20);
+    expect(beside(5)).toBe(75);
+    expect(beside(10)).toBe(50);
+    // What was measured in the original: about 31 and 21 for two shots that landed beside a tank
+    expect(beside(14)).toBe(30);
+    expect(beside(16)).toBe(20);
+    expect(beside(19)).toBe(5);
+    expect(beside(20)).toBe(0);
+    expect(damageTo(tank, 500, 600 - TANK_HEIGHT - 20, 20)).toBe(0);
+    expect(damageTo(tank, 500, 600 - TANK_HEIGHT - 10, 20)).toBe(50);
+  });
+
+  it("takes energy from a tank beside which a shot lands, and tells it", () => {
+    const field = flatField(600, [{ x: 100 }, { x: 700, power: 900 }]);
+    const { events } = fly(field, { id: 1, owner: 0, x: 700 + TANK_WIDTH / 2 + 10, y: 300, vx: 0, vy: 0 });
+
+    const energy = field.tanks[1].energy;
+    expect(energy).toBe(50);
+    expect(events).toContainEqual({ event: "damage", id: 1, energy });
+    expect(field.tanks[0].energy).toBe(100);
+    // The power is at most ten times the energy
+    expect(field.tanks[1].power).toBe(500);
+  });
+
+  it("destroys a tank that is hit, which then does not stop projectiles or take damage", () => {
+    const field = flatField(600, [{ x: 100 }, { x: 700 }]);
+    const { events } = fly(field, { id: 1, owner: 0, x: 700, y: 300, vx: 0, vy: 0 });
+    expect(field.tanks[1]).toMatchObject({ energy: 0, power: 0 });
+    expect(events).toContainEqual({ event: "damage", id: 1, energy: 0 });
+
+    const next = fly(field, { id: 2, owner: 0, x: 700, y: 300, vx: 0, vy: 0 });
+    expect(next.events.filter((event) => event.event === "damage")).toEqual([]);
+    // It fell through the wreck to the ground
+    expect((next.events[0] as { y: number }).y).toBeGreaterThan(600 - TANK_HEIGHT);
   });
 });

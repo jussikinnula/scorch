@@ -2,7 +2,7 @@
 
 An artillery game for people only, after the original Scorched Earth: played from a shared big screen with phones as controllers ("hotseat"), or over the network ("online").
 
-There is no game yet. What works: a screen creates a hotseat room, phones join it by scanning a QR code, and when the game is started the screen shows a terrain with a tank for each player, whose turret and power the player sets on the phone. A player can fire: the shot flies, explodes and leaves a crater, but does no damage yet. A player can also write a short text, which is shown in a speech bubble above the tank. The plan is in [docs/PLAN.md](docs/PLAN.md), the messages between the frontend and the backend are in [docs/PROTOCOL.md](docs/PROTOCOL.md), and what the original game can do is in [docs/ORIGINAL.md](docs/ORIGINAL.md).
+There is no game yet. What works: a screen creates a hotseat room, phones join it by scanning a QR code, and when the game is started the screen shows a terrain with a tank for each player, whose turret and power the player sets on the phone. A player can fire: the shot flies, explodes, leaves a crater and damages the tanks near it. When one tank is left the round ends and a new one starts. A player can also write a short text, which is shown in a speech bubble above the tank. The plan is in [docs/PLAN.md](docs/PLAN.md), the messages between the frontend and the backend are in [docs/PROTOCOL.md](docs/PROTOCOL.md), and what the original game can do is in [docs/ORIGINAL.md](docs/ORIGINAL.md).
 
 ## Usage
 
@@ -26,6 +26,7 @@ There is no game yet. What works: a screen creates a hotseat room, phones join i
 | `shared` | What both use: the messages of the WebSocket API, the data of the game and, later, the simulation |
 | `test`   | Helpers of the tests, e.g. `startBackend`, which runs the real backend for a test                 |
 | `docs`   | The plan and the notes about the original game                                                    |
+| `tools`  | Scripts that are not part of the game: measuring the original game                                |
 
 The frontend is a static site in GitHub Pages, which cannot serve the same page for every path. That is why the view is in the hash of the address (`client/routes.ts`): `#/screen/<room>`, `#/join/<token>`, `#/controller/<room>` and `#/play/<room>`.
 
