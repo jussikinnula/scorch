@@ -1,15 +1,31 @@
 import React, { useEffect, useRef, useState } from "react";
 
-import { FieldState, PlayerInfo } from "../../shared/protocol";
+import { FieldState, PlayerInfo, ShotState, SHOTS_INTERVAL } from "../../shared/protocol";
 import { TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "../../shared/sim/field";
 import { playerColor } from "../colors";
 import { Bubbles } from "../hooks/useBubbles";
+
+/**
+ * What moves on the field faster than the rest of it is redrawn: the projectiles and the explosions.
+ * The screen writes them here as the server tells them, and the field reads them on every frame.
+ */
+export interface Action {
+  /** The projectiles as the server last told them, and as it told them the time before. */
+  shots: ShotState[];
+  previous: ShotState[];
+  /** When the latest ones were told, on the clock of performance.now(). */
+  at: number;
+  explosions: { x: number; y: number; radius: number; at: number }[];
+}
+
+export const noAction = (): Action => ({ shots: [], previous: [], at: 0, explosions: [] });
 
 interface Props {
   field: FieldState;
   players: PlayerInfo[];
   /** The speech bubbles to show: the text by the id of the player. */
   bubbles?: Bubbles;
+  action?: Action;
 }
 
 /** Where the playing field is on a canvas: how large a pixel of the field is, and where its top left corner is. */
@@ -182,6 +198,71 @@ function drawBubbles(context: CanvasRenderingContext2D, field: FieldState, bubbl
   context.textBaseline = "alphabetic";
 }
 
+/** How long an explosion is shown, in milliseconds. */
+const EXPLOSION_TIME = 500;
+/** How many of the latest places of a projectile make its tail. */
+const TAIL_LENGTH = 14;
+
+/**
+ * Where the projectiles are right now. The server tells their places a few times a second; between
+ * two tellings a projectile is drawn on the way from the earlier place to the later one.
+ */
+export function placeShots(action: Pick<Action, "shots" | "previous" | "at">, now: number) {
+  const progress = Math.min(1, Math.max(0, (now - action.at) / SHOTS_INTERVAL));
+  return action.shots.map((shot) => {
+    const from = action.previous.find((candidate) => candidate.id === shot.id) ?? shot;
+    return { ...shot, x: from.x + (shot.x - from.x) * progress, y: from.y + (shot.y - from.y) * progress };
+  });
+}
+
+function drawAction(
+  context: CanvasRenderingContext2D,
+  action: Action,
+  tails: Map<number, { x: number; y: number }[]>,
+  now: number
+) {
+  const shots = placeShots(action, now);
+  for (const id of tails.keys()) if (!shots.some((shot) => shot.id === id)) tails.delete(id);
+
+  for (const shot of shots) {
+    const tail = tails.get(shot.id) ?? [];
+    tail.push({ x: shot.x, y: shot.y });
+    if (tail.length > TAIL_LENGTH) tail.shift();
+    tails.set(shot.id, tail);
+
+    const color = playerColor(shot.owner);
+    tail.forEach((point, index) => {
+      context.globalAlpha = (0.5 * (index + 1)) / tail.length;
+      context.fillStyle = color;
+      context.beginPath();
+      context.arc(point.x, point.y, 2, 0, 2 * Math.PI);
+      context.fill();
+    });
+    context.globalAlpha = 1;
+    context.fillStyle = "#fff";
+    context.beginPath();
+    context.arc(shot.x, shot.y, 3, 0, 2 * Math.PI);
+    context.fill();
+  }
+
+  action.explosions = action.explosions.filter((explosion) => now - explosion.at < EXPLOSION_TIME);
+  for (const explosion of action.explosions) {
+    // The ball of fire grows fast to its full size and then fades
+    const age = (now - explosion.at) / EXPLOSION_TIME;
+    const radius = explosion.radius * Math.min(1, age * 4);
+    const fire = context.createRadialGradient(explosion.x, explosion.y, 0, explosion.x, explosion.y, radius);
+    fire.addColorStop(0, "#fff");
+    fire.addColorStop(0.4, "#ffe066");
+    fire.addColorStop(1, "#f0562a");
+    context.globalAlpha = 1 - age * age;
+    context.fillStyle = fire;
+    context.beginPath();
+    context.arc(explosion.x, explosion.y, radius, 0, 2 * Math.PI);
+    context.fill();
+    context.globalAlpha = 1;
+  }
+}
+
 /** The size of the window in pixels of the device, kept up to date. */
 function useWindowSize() {
   const measure = () => {
@@ -199,29 +280,47 @@ function useWindowSize() {
   return size;
 }
 
-/** The playing field: the terrain and the tanks, drawn on a canvas that covers the whole window. */
-export default function Field({ field, players, bubbles }: Props) {
+/** The playing field: the terrain, the tanks and what flies, drawn on a canvas that covers the whole window. */
+export default function Field({ field, players, bubbles, action }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const background = useRef<{ of: number[][]; width: number; height: number; picture: HTMLCanvasElement } | null>(null);
+  const tails = useRef(new Map<number, { x: number; y: number }[]>());
   const { width, height } = useWindowSize();
+  // What to draw is kept where the drawing of each frame finds the latest of it
+  const scene = useRef({ field, players, bubbles, action, width, height });
+  scene.current = { field, players, bubbles, action, width, height };
 
   useEffect(() => {
     const context = canvas.current?.getContext("2d");
     if (!context) return;
-    const layout = layoutField(field, width, height);
 
-    // The background is drawn again only when the terrain or the size of the window has changed
-    const drawn = background.current;
-    if (!drawn || drawn.of !== field.terrain || drawn.width !== width || drawn.height !== height) {
-      background.current = { of: field.terrain, width, height, picture: drawBackground(field, width, height, layout) };
-    }
+    let frame = 0;
+    const draw = () => {
+      const { field, players, bubbles, action, width, height } = scene.current;
+      const layout = layoutField(field, width, height);
 
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    context.drawImage(background.current!.picture, 0, 0);
-    context.setTransform(layout.scale, 0, 0, layout.scale, layout.left, layout.top);
-    drawTanks(context, field, players);
-    if (bubbles) drawBubbles(context, field, bubbles);
-  }, [field, players, bubbles, width, height]);
+      // The background is drawn again only when the terrain or the size of the window has changed
+      const drawn = background.current;
+      if (!drawn || drawn.of !== field.terrain || drawn.width !== width || drawn.height !== height) {
+        background.current = {
+          of: field.terrain,
+          width,
+          height,
+          picture: drawBackground(field, width, height, layout)
+        };
+      }
+
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.drawImage(background.current!.picture, 0, 0);
+      context.setTransform(layout.scale, 0, 0, layout.scale, layout.left, layout.top);
+      drawTanks(context, field, players);
+      if (action) drawAction(context, action, tails.current, performance.now());
+      if (bubbles) drawBubbles(context, field, bubbles);
+      frame = window.requestAnimationFrame(draw);
+    };
+    draw();
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   return (
     <canvas ref={canvas} className="field" width={width} height={height} role="img" aria-label="The playing field" />

@@ -104,6 +104,14 @@ describe("a hotseat game", () => {
       bob.send({ type: "aim", angle: 135 });
       await vi.waitFor(() => expect(screen.getByLabelText("Aim of Bob")).toHaveTextContent("45° ← · 900"), FIND);
 
+      // A shot straight up at low power comes down on the tank
+      expect(screen.getByText("Projectiles in the air: 0")).toBeInTheDocument();
+      bob.send({ type: "aim", angle: 90, power: 80 });
+      bob.send({ type: "fire" });
+      expect(await screen.findByText("Projectiles in the air: 1", {}, FIND)).toBeInTheDocument();
+      expect(await screen.findByText("Projectiles in the air: 0", {}, FIND)).toBeInTheDocument();
+      bob.send({ type: "aim", angle: 135, power: 900 });
+
       bob.send({ type: "say", text: "Eat this!" });
       expect(await screen.findByLabelText("Speech bubble of Bob", {}, FIND)).toHaveTextContent("Eat this!");
 
@@ -317,6 +325,26 @@ describe("a hotseat game", () => {
       expect(await screen.findByLabelText("Power value", {}, FIND)).toHaveTextContent("805");
       const shown = angle - 1 <= 90 ? `${angle - 1}° →` : `${180 - (angle - 1)}° ←`;
       expect(screen.getByLabelText("Angle")).toHaveTextContent(shown);
+    });
+
+    it("fires, and reloads after it", async () => {
+      await joinAs("Ann");
+      clients.push(await openController(backend, token, "Bob"));
+      host.send({ type: "start" });
+      const fire = await screen.findByRole("button", { name: "Fire" }, FIND);
+      await vi.waitFor(() => expect(fire).toBeEnabled(), FIND);
+
+      // The aim that is set just before goes with the shot
+      fireEvent.change(screen.getByLabelText("Power"), { target: { value: "50" } });
+      fireEvent.click(screen.getByRole("button", { name: "More power" }));
+      fireEvent.click(fire);
+
+      expect(await screen.findByRole("button", { name: "Reloading…" }, FIND)).toBeDisabled();
+      const { shots } = await host.next("shots");
+      expect(shots).toEqual([{ id: 1, owner: 0, x: expect.any(Number), y: expect.any(Number) }]);
+      // At so little power the shot comes down close by
+      const { x } = (await host.next("field")).field.tanks[0];
+      expect(Math.abs((await host.next("explode")).x - x)).toBeLessThan(40);
     });
 
     it("says something in a speech bubble", async () => {

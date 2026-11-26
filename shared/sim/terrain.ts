@@ -1,3 +1,4 @@
+import { TerrainChange } from "../protocol";
 import { Random } from "./random";
 
 /**
@@ -60,4 +61,56 @@ export function flatten(terrain: Terrain, x: number, halfWidth: number, height: 
   const from = Math.max(0, Math.round(x - halfWidth));
   const to = Math.min(terrain.length - 1, Math.round(x + halfWidth));
   for (let column = from; column <= to; column++) terrain[column] = [top, height];
+}
+
+/** Whether there is dirt at a point. Outside the field there is none. */
+export function isDirt(terrain: Terrain, x: number, y: number) {
+  const column = terrain[Math.floor(x)];
+  if (!column) return false;
+  for (let i = 0; i + 1 < column.length; i += 2) if (y >= column[i] && y < column[i + 1]) return true;
+  return false;
+}
+
+/**
+ * A change to the dirt. The server makes the changes and tells them to those who show the field,
+ * who make the same changes to their own copy of the terrain: the result must be the same
+ * everywhere, so the changes use only whole numbers.
+ */
+export type TerrainOp = TerrainChange;
+
+/** Removes the dirt of a column from one y (inclusive) to another (exclusive). */
+function cutColumn(column: number[], from: number, to: number) {
+  const cut: number[] = [];
+  for (let i = 0; i + 1 < column.length; i += 2) {
+    const [top, bottom] = [column[i], column[i + 1]];
+    if (top < from) cut.push(top, Math.min(bottom, from));
+    if (bottom > to) cut.push(Math.max(top, to), bottom);
+  }
+  return cut;
+}
+
+/** Destroys the dirt inside a circle. What was above it is left hanging until the terrain is settled. */
+export function carve(terrain: Terrain, x: number, y: number, r: number) {
+  for (let dx = -r; dx <= r; dx++) {
+    const column = terrain[x + dx];
+    if (!column) continue;
+    const half = Math.floor(Math.sqrt(r * r - dx * dx));
+    terrain[x + dx] = cutColumn(column, y - half, y + half + 1);
+  }
+}
+
+/** Lets the dirt fall: after it each column is one pile on the bottom of the field, of all its dirt. */
+export function settle(terrain: Terrain, height: number) {
+  terrain.forEach((column, x) => {
+    if (column.length <= 2 && (column.length === 0 || column[1] === height)) return;
+    let dirt = 0;
+    for (let i = 0; i + 1 < column.length; i += 2) dirt += column[i + 1] - column[i];
+    terrain[x] = dirt > 0 ? [height - dirt, height] : [];
+  });
+}
+
+/** Makes a change to the terrain. */
+export function applyTerrainOp(terrain: Terrain, op: TerrainOp, height: number) {
+  if (op.op === "carve") carve(terrain, op.x, op.y, op.r);
+  else settle(terrain, height);
 }

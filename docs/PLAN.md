@@ -280,6 +280,7 @@ Left to do by hand: creating the Render service, the secret and the variables in
 
 **Phase 1 – Hotseat + Classic.** The measurements of the original (ORIGINAL.md), the core of the simulation (terrain, ballistics, wind, the weapons of phase 1, fall damage), rooms, joining with a QR code and a changing token, the lobby, the shop, rounds, points and money, returning after a lost connection.
 Done when: four people play a match of ten rounds from a TV with phones, from start to end.
+Done so far: rooms, joining with the QR code, the lobby, returning after a lost connection, the playing field, turning the turret, speech bubbles, the ballistics measured from the original, and firing one weapon with craters and falling dirt. Everyone fires when their tank has reloaded, which is the live mode in its simplest form; the turns of the classic mode come with the rounds. Still to do: the wind, damage and death, rounds, points and money, the shop and the rest of the weapons of this phase.
 
 **Phase 2 – Live.** Playing at the same time, reload times, continuous settling of the terrain, changing wind, the reload on the controller, the speech bubbles of the dead.
 Done when: the same match of four works in the live mode, the reload times have been tuned after at least one play test, and the maximum number of players of the live mode has been tested.

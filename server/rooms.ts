@@ -9,13 +9,16 @@ import {
   MAX_NAME_LENGTH,
   MIN_PLAYERS,
   PlayerInfo,
+  RELOAD_TIME,
   SAY_INTERVAL,
   RoomMode,
   RoomPhase,
   RoomSettings,
   RoomState,
-  ServerMessage
+  ServerMessage,
+  SHOTS_INTERVAL
 } from "../shared/protocol";
+import { launch, Shot, stepShots, STEPS_PER_SECOND } from "../shared/sim/shots";
 import { createField, removeTank } from "../shared/sim/field";
 import { createRandom } from "../shared/sim/random";
 
@@ -46,6 +49,8 @@ interface Player<Member> {
   member: Member | null;
   /** When the player last said something in a speech bubble. */
   saidAt: number;
+  /** When the tank of the player can fire again. */
+  reloadedAt: number;
 }
 
 interface Room<Member> {
@@ -61,6 +66,9 @@ interface Room<Member> {
   screen: Member | null;
   /** The playing field, once the game has started. */
   field: FieldState | null;
+  /** The projectiles in the air. */
+  shots: Shot[];
+  nextShot: number;
   token: string;
   /** The token before the newest one, which still lets a controller join. */
   previousToken: string | null;
@@ -97,6 +105,8 @@ class Rooms<Member> {
   private readonly tokenPeriod: number;
   private readonly roomTimeout: number;
   private readonly seed: number | undefined;
+  /** Moves the projectiles of all the rooms, while there are any in the air. */
+  private ticker: ReturnType<typeof setInterval> | null = null;
 
   /**
    * @param send Sends a message to a member.
@@ -150,6 +160,9 @@ class Rooms<Member> {
       case "aim":
         this.aim(member, message.angle, message.power);
         return true;
+      case "fire":
+        this.fire(member);
+        return true;
       case "say":
         this.say(member, message.text);
         return true;
@@ -177,6 +190,7 @@ class Rooms<Member> {
   /** Removes all the rooms and stops their timers, when the server is closed. */
   shutdown() {
     for (const room of [...this.rooms.values()]) this.remove(room);
+    this.stopTicker();
   }
 
   private create(member: Member, mode: RoomMode) {
@@ -194,6 +208,8 @@ class Rooms<Member> {
       players: [],
       screen: member,
       field: null,
+      shots: [],
+      nextShot: 1,
       token: this.newToken(),
       previousToken: null,
       tokenChangedAt: Date.now(),
@@ -239,7 +255,8 @@ class Rooms<Member> {
       name: this.uniqueName(room, name),
       key: randomKey(),
       member,
-      saidAt: -Infinity
+      saidAt: -Infinity,
+      reloadedAt: 0
     };
     room.players.push(player);
     room.players.sort((a, b) => a.id - b.id);
@@ -338,6 +355,58 @@ class Rooms<Member> {
     if (room.screen) this.send(room.screen, { type: "aim", id: tank.id, angle: tank.angle, power: tank.power });
   }
 
+  private fire(member: Member) {
+    const session = this.sessions.get(member);
+    if (!session?.player) return this.refuse(member, "not-allowed", "fire");
+    const { room, player } = session;
+    const tank = room.field?.tanks.find((candidate) => candidate.id === player.id);
+    if (!tank) return this.refuse(member, "wrong-phase", "fire");
+    if (Date.now() < player.reloadedAt) return this.refuse(member, "reloading", "fire");
+
+    player.reloadedAt = Date.now() + RELOAD_TIME;
+    room.shots.push(launch(tank, room.nextShot++));
+    this.send(member, { type: "reload", time: RELOAD_TIME });
+    this.startTicker();
+  }
+
+  /** Starts moving the projectiles, if they are not moving already. */
+  private startTicker() {
+    this.ticker ??= setInterval(() => this.tick(), SHOTS_INTERVAL);
+  }
+
+  private stopTicker() {
+    if (this.ticker) clearInterval(this.ticker);
+    this.ticker = null;
+  }
+
+  /** Moves the projectiles of all the rooms forward by the time of a tick, and tells the screens what happened. */
+  private tick() {
+    let flying = false;
+    for (const room of this.rooms.values()) {
+      if (!room.field || room.shots.length === 0) continue;
+
+      for (let step = 0; step < (STEPS_PER_SECOND * SHOTS_INTERVAL) / 1000; step++) {
+        const { shots, events } = stepShots(room.field, room.shots);
+        room.shots = shots;
+        for (const event of events) {
+          if (!room.screen) continue;
+          if (event.event === "explode") {
+            this.send(room.screen, { type: "explode", x: event.x, y: event.y, radius: event.radius });
+          } else {
+            this.send(room.screen, { type: "terrain", changes: event.ops, tanks: room.field.tanks });
+          }
+        }
+      }
+      // Also when the last one has gone: an empty list tells that nothing is in the air any more
+      if (room.screen) {
+        const shots = room.shots.map(({ id, owner, x, y }) => ({ id, owner, x: Math.round(x), y: Math.round(y) }));
+        this.send(room.screen, { type: "shots", shots });
+      }
+      flying ||= room.shots.length > 0;
+    }
+    if (!flying) this.stopTicker();
+  }
+
   private say(member: Member, text: string) {
     const session = this.sessions.get(member);
     if (!session?.player) return this.refuse(member, "not-allowed", "say");
@@ -405,11 +474,15 @@ class Rooms<Member> {
     if (room.field && room.screen) this.send(room.screen, { type: "field", field: room.field });
   }
 
-  /** Tells a player the aim its tank has, when the player cannot know it: at first and after returning. */
+  /**
+   * Tells a player what only the server knows about its tank, when the player cannot know it, at
+   * first and after returning: the aim, and how long the tank still reloads.
+   */
   private sendOwnAim(room: Room<Member>, player: Player<Member>) {
     const tank = room.field?.tanks.find((candidate) => candidate.id === player.id);
     if (tank && player.member) {
       this.send(player.member, { type: "aim", id: tank.id, angle: tank.angle, power: tank.power });
+      this.send(player.member, { type: "reload", time: Math.max(0, player.reloadedAt - Date.now()) });
     }
   }
 

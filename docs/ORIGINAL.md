@@ -211,13 +211,33 @@ All of these prices were checked on the buying screen **(seen)**, and they match
 
 Guidance does not work with MIRV, Death's Head, Riot Charge, Riot Blast or Plasma Blast. A shield never protects from one's own shot.
 
+## Measured
+
+### The settings file
+
+`SCORCH.CFG` is written when Save Changes is chosen in the main menu (the key `c`). It is a text file of `KEY=value` lines with DOS line endings, and the game reads it at start. Editing it is the easy way to set up a measurement: e.g. `MAX_WIND=0`, `TRACE=On` and `GRAPHICS_MODE=640x480`. The default graphics mode is `360x480`; the others are `320x200`, `320x240`, `320x400`, `320x480`, `640x400`, `640x480`, `800x600` and `1024x768`.
+
+In the game, Up and Down change the power by 1 and Page Up and Page Down by 15, Left and Right turn the turret by a degree, and Space fires.
+
+### Ballistics
+
+Measured with Trace Paths on and no wind: the trace of each shot was read from a screenshot and a parabola was fitted to it (fourteen shots, at angles of 39, 46 and 70 degrees and powers of 290–560; the fit was within about a pixel).
+
+- A projectile flies a parabola: gravity is the only force when there is no wind and no air viscosity.
+- **The speed is proportional to the power**, at every angle that was tried. With the default gravity of 0.2 pixels a step squared, the speed is 0.0200 pixels a step for each unit of power at 640x480, and 0.0110 at 360x480.
+- **The speed depends on the graphics mode, the gravity does not.** The speed for a unit of power is the width of the screen divided by 32,000, within the accuracy of the measurement (640 / 32,000 = 0.0200; 360 / 32,000 = 0.0113). So the same power carries a shot further across a wider screen: at full power and 45 degrees, 3.1 widths of the screen at 640x480 but 1.7 at 360x480. The same game is a different game in each graphics mode.
+- The angle in the status bar is the angle of the turret from the horizon in degrees, and the pixels are square in the calculation.
+- A projectile that leaves the screen at the top or the side is still followed, and comes back (Borders Extend).
+
+SCORCH takes 640x480 as its reference: a pixel of the original is two pixels of the 1280 wide playing field, and a shot at full power and 45 degrees flies 3.125 widths of the field. How long a step of the original takes was not measured, because it depends on the Firing Delay setting and on the speed of the computer; SCORCH chooses it so that a shot across the whole field at 45 degrees is in the air for three seconds (`shared/sim/shots.ts`).
+
 ## To be measured
 
 The manual does not give these, and the simulation needs them. They are measured by running the game, and the results are added to this file.
 
 **Before phase 1**
 
-- The relation of power to the speed of a projectile, and the units of gravity and wind.
+- How much a unit of wind bends a trajectory. (The first try got a wind of 8 and shots into a mountain: it needs a strong wind and open ground.)
 - The damage of an explosion by distance, for each weapon of phase 1.
 - Fall damage by height.
 - The points of the Standard scoring: for damage, for a kill, for surviving, and the penalty for hitting oneself. This also decides the default of Cash at Start in PLAN.md.

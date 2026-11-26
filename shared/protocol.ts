@@ -5,7 +5,7 @@
  * messages are used.
  *
  * Everything here is implemented: the rooms (creating one, joining it with the QR code, its lobby),
- * the playing field, turning the turret ("aim") and the speech bubbles ("say").
+ * the playing field, turning the turret ("aim"), firing ("fire") and the speech bubbles ("say").
  */
 
 /** The path of the WebSocket API on the server. */
@@ -19,7 +19,7 @@ export const SOCKET_PATH = "/ws";
  * A client tells its version in the address it connects to (see socketPath), the server in its
  * greeting. The test of this file fails when the messages change and the version does not.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /** The name of the part of the address of the WebSocket API where a client tells its version. */
 export const PROTOCOL_PARAMETER = "protocol";
@@ -49,6 +49,10 @@ export const JOIN_TOKEN_PERIOD = 30000;
 export const AIM_INTERVAL = 50;
 /** The shortest time between the speech bubbles of a player, in milliseconds. */
 export const SAY_INTERVAL = 2000;
+/** How long a tank reloads after firing, in milliseconds. So far there is one weapon, the Baby Missile. */
+export const RELOAD_TIME = 3000;
+/** How often those who show the field are told where the projectiles are, in milliseconds. */
+export const SHOTS_INTERVAL = 50;
 
 /** What rooms, tokens and keys look like: letters, digits, _ and -. They are used in addresses. */
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -96,6 +100,26 @@ export interface TankState {
   power: number;
 }
 
+/** A projectile in the air, as it is shown. */
+export interface ShotState {
+  id: number;
+  /** The id of the player who fired it. */
+  owner: number;
+  /** In pixels of the playing field. A projectile can be outside the field: above it, or past its sides. */
+  x: number;
+  y: number;
+}
+
+/**
+ * A change to the dirt of the playing field. Those who show the field make the same changes to
+ * their own copy of the terrain, with the code of shared/sim/terrain.ts.
+ */
+export type TerrainChange =
+  /** The dirt inside a circle is destroyed. */
+  | { op: "carve"; x: number; y: number; r: number }
+  /** All the dirt that has nothing under it falls straight down. */
+  | { op: "settle" };
+
 /** The playing field at the start of a round. */
 export interface FieldState {
   width: number;
@@ -129,6 +153,8 @@ export type ErrorCode =
   /** The room is not in a phase where this can be done. */
   | "wrong-phase"
   | "rate-limited"
+  /** The tank is still reloading after its last shot. */
+  | "reloading"
   /** Another connection took over this screen or this player. The server closes this one. */
   | "replaced";
 
@@ -159,6 +185,8 @@ export type ClientMessage =
   | { type: "start" }
   /** A player turns the turret or sets the power, or both. */
   | { type: "aim"; angle?: number; power?: number }
+  /** A player fires the tank, with the aim it has. */
+  | { type: "fire" }
   /** A player says something in a speech bubble above the tank. */
   | { type: "say"; text: string };
 
@@ -180,6 +208,14 @@ export type ServerMessage =
   | { type: "field"; field: FieldState }
   /** To those who show the playing field: the aim of a tank changed. To a controller: the aim of its own tank, when it cannot know it. */
   | { type: "aim"; id: number; angle: number; power: number }
+  /** To a player: how long its tank still reloads, in milliseconds. 0 when it can fire. */
+  | { type: "reload"; time: number }
+  /** To those who show the playing field: all the projectiles in the air, while there are any, and once more when there are none. */
+  | { type: "shots"; shots: ShotState[] }
+  /** To those who show the playing field: an explosion. */
+  | { type: "explode"; x: number; y: number; radius: number }
+  /** To those who show the playing field: the dirt changed, and the tanks are where they are after it. */
+  | { type: "terrain"; changes: TerrainChange[]; tanks: TankState[] }
   /** To those who show the playing field, and to the one who said it: a speech bubble. */
   | { type: "say"; id: number; text: string };
 
@@ -212,6 +248,7 @@ export function isClientMessage(value: unknown): value is ClientMessage {
     case "ping":
     case "leave":
     case "start":
+    case "fire":
       return true;
     case "create":
       return message.mode === "hotseat";

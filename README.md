@@ -2,7 +2,7 @@
 
 An artillery game for people only, after the original Scorched Earth: played from a shared big screen with phones as controllers ("hotseat"), or over the network ("online").
 
-There is no game yet. What works: a screen creates a hotseat room, phones join it by scanning a QR code, and when the game is started the screen shows a terrain with a tank for each player, whose turret and power the player sets on the phone. A player can also write a short text, which is shown in a speech bubble above the tank. The plan is in [docs/PLAN.md](docs/PLAN.md), the messages between the frontend and the backend are in [docs/PROTOCOL.md](docs/PROTOCOL.md), and what the original game can do is in [docs/ORIGINAL.md](docs/ORIGINAL.md).
+There is no game yet. What works: a screen creates a hotseat room, phones join it by scanning a QR code, and when the game is started the screen shows a terrain with a tank for each player, whose turret and power the player sets on the phone. A player can fire: the shot flies, explodes and leaves a crater, but does no damage yet. A player can also write a short text, which is shown in a speech bubble above the tank. The plan is in [docs/PLAN.md](docs/PLAN.md), the messages between the frontend and the backend are in [docs/PROTOCOL.md](docs/PROTOCOL.md), and what the original game can do is in [docs/ORIGINAL.md](docs/ORIGINAL.md).
 
 ## Usage
 
