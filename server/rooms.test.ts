@@ -560,7 +560,7 @@ describe("Rooms", () => {
 
       const again = member("Ann again");
       rooms.handle(again, { type: "resume", room, playerKey });
-      expect(types(again)).toEqual(["joined", "room", "aim"]);
+      expect(types(again)).toEqual(["joined", "room", "aim", "reload"]);
       expect(last(again, "aim")).toEqual({ type: "aim", id: 0, angle: 33, power: 720 });
     });
 
@@ -579,6 +579,151 @@ describe("Rooms", () => {
       rooms.disconnect(ann);
       expect(screen.messages.filter((message) => message.type === "field")).toHaveLength(fields);
       expect(last(screen, "field").field.tanks).toHaveLength(2);
+    });
+  });
+
+  describe("firing", () => {
+    const startGame = () => {
+      const screen = createRoom();
+      const ann = joinRoom(screen, "Ann");
+      const bob = joinRoom(screen, "Bob");
+      rooms.handle(screen, { type: "start" });
+      return { screen, ann, bob };
+    };
+    const of = <Type extends ServerMessage["type"]>(member: Member, type: Type) =>
+      member.messages.filter((message) => message.type === type) as Extract<ServerMessage, { type: Type }>[];
+
+    it("sends a projectile into the air, which the screen is told about until it is gone", () => {
+      const { screen, ann, bob } = startGame();
+      const tank = last(screen, "field").field.tanks[0];
+      rooms.handle(ann, { type: "fire" });
+
+      vi.advanceTimersByTime(50);
+      const [first] = of(screen, "shots");
+      expect(first.shots).toEqual([{ id: 1, owner: 0, x: expect.any(Number), y: expect.any(Number) }]);
+      // It has left upwards from the tank
+      expect(first.shots[0].y).toBeLessThan(tank.y);
+
+      vi.advanceTimersByTime(60000);
+      const snapshots = of(screen, "shots");
+      expect(snapshots.length).toBeGreaterThan(10);
+      expect(snapshots[snapshots.length - 1].shots).toEqual([]);
+      // Only the last one is empty, and nothing is sent after it
+      expect(snapshots.filter((snapshot) => snapshot.shots.length === 0)).toHaveLength(1);
+      vi.advanceTimersByTime(60000);
+      expect(of(screen, "shots")).toHaveLength(snapshots.length);
+
+      // The controllers do not show the field
+      for (const controller of [ann, bob]) {
+        expect(of(controller, "shots")).toEqual([]);
+        expect(of(controller, "explode")).toEqual([]);
+        expect(of(controller, "terrain")).toEqual([]);
+      }
+    });
+
+    it("tells the screen about the explosion and the change of the terrain", () => {
+      const { screen, ann } = startGame();
+      // Straight up at low power: the projectile comes down on the tank
+      rooms.handle(ann, { type: "aim", angle: 90, power: 100 });
+      rooms.handle(ann, { type: "fire" });
+      vi.advanceTimersByTime(60000);
+
+      const [explosion] = of(screen, "explode");
+      const [terrain] = of(screen, "terrain");
+      const tank = terrain.tanks[0];
+      expect(Math.abs(explosion.x - tank.x)).toBeLessThanOrEqual(1);
+      expect(terrain.changes).toEqual([
+        { op: "carve", x: explosion.x, y: explosion.y, r: explosion.radius },
+        { op: "settle" }
+      ]);
+      // The tank came down with the ground, the other one did not move
+      const before = last(screen, "field").field.tanks;
+      expect(terrain.tanks.map((moved) => moved.id)).toEqual([0, 1]);
+      expect(terrain.tanks[1]).toEqual(before[1]);
+    });
+
+    it("gives a screen that returns the terrain as it is after the explosions", () => {
+      const { screen, ann } = startGame();
+      rooms.handle(ann, { type: "aim", angle: 90, power: 100 });
+      rooms.handle(ann, { type: "fire" });
+      vi.advanceTimersByTime(60000);
+      const [explosion] = of(screen, "explode");
+      const { room, hostKey } = last(screen, "created");
+
+      const again = member("screen again");
+      rooms.handle(again, { type: "host", room, hostKey });
+      const { field } = last(again, "field");
+      // There is a crater where the explosion was
+      expect(field.terrain[explosion.x][0]).toBeGreaterThan(explosion.y);
+      expect(field.tanks[0].y).toBe(of(screen, "terrain")[0].tanks[0].y);
+    });
+
+    it("reloads for three seconds after a shot", () => {
+      const { ann } = startGame();
+      rooms.handle(ann, { type: "fire" });
+      expect(last(ann, "reload")).toEqual({ type: "reload", time: 3000 });
+
+      vi.advanceTimersByTime(2999);
+      rooms.handle(ann, { type: "fire" });
+      expect(errors(ann)).toEqual([{ type: "error", code: "reloading", re: "fire" }]);
+
+      vi.advanceTimersByTime(1);
+      rooms.handle(ann, { type: "fire" });
+      expect(errors(ann)).toHaveLength(1);
+      expect(of(ann, "reload")).toHaveLength(3);
+    });
+
+    it("lets every player have a projectile in the air at the same time", () => {
+      const { screen, ann, bob } = startGame();
+      rooms.handle(ann, { type: "fire" });
+      rooms.handle(bob, { type: "fire" });
+      vi.advanceTimersByTime(50);
+      expect(last(screen, "shots").shots.map((shot) => [shot.id, shot.owner])).toEqual([
+        [1, 0],
+        [2, 1]
+      ]);
+    });
+
+    it("tells a controller that returns how long its tank still reloads", () => {
+      const { ann } = startGame();
+      rooms.handle(ann, { type: "fire" });
+      const { room, playerKey } = last(ann, "joined");
+      rooms.disconnect(ann);
+      vi.advanceTimersByTime(1000);
+
+      const again = member("Ann again");
+      rooms.handle(again, { type: "resume", room, playerKey });
+      expect(last(again, "reload")).toEqual({ type: "reload", time: 2000 });
+
+      vi.advanceTimersByTime(5000);
+      const later = member("Ann later");
+      rooms.handle(later, { type: "resume", room, playerKey });
+      expect(last(later, "reload")).toEqual({ type: "reload", time: 0 });
+    });
+
+    it("keeps the projectiles flying while the screen is away", () => {
+      const { screen, ann } = startGame();
+      rooms.handle(ann, { type: "aim", angle: 90, power: 100 });
+      rooms.handle(ann, { type: "fire" });
+      const { room, hostKey } = last(screen, "created");
+      const { y } = last(screen, "field").field.tanks[0];
+      rooms.disconnect(screen);
+      vi.advanceTimersByTime(60000);
+
+      const again = member("screen again");
+      rooms.handle(again, { type: "host", room, hostKey });
+      // The shot has landed on the tank meanwhile: the tank is lower than it was
+      expect(last(again, "field").field.tanks[0].y).toBeGreaterThan(y);
+      expect(of(again, "shots")).toEqual([]);
+    });
+
+    it("is refused before the game, and from those who are not players", () => {
+      const screen = createRoom();
+      const ann = joinRoom(screen, "Ann");
+      rooms.handle(ann, { type: "fire" });
+      rooms.handle(screen, { type: "fire" });
+      expect(errors(ann)).toEqual([{ type: "error", code: "wrong-phase", re: "fire" }]);
+      expect(errors(screen)).toEqual([{ type: "error", code: "not-allowed", re: "fire" }]);
     });
   });
 

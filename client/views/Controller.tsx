@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { AIM_INTERVAL, RoomState } from "../../shared/protocol";
 import { playerColor } from "../colors";
 import AimControl from "../components/AimControl";
+import FireControl from "../components/FireControl";
 import PlayerList from "../components/PlayerList";
 import SayControl from "../components/SayControl";
 import { Api, useApiMessages } from "../hooks/useApiConnection";
@@ -31,6 +32,8 @@ export default function Controller({ api, room }: Props) {
   const [self, setSelf] = useState<number | null>(null);
   const selfNow = useRef<number | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
+  // The reload of the tank that is going on, as the server told it
+  const [reload, setReload] = useState({ until: 0, time: 0 });
   // What the player last said, as the server showed it, for as long as the bubble is on the screen
   const { bubbles, say: showBubble } = useBubbles();
   const said: string | undefined = self === null ? undefined : bubbles[self];
@@ -75,6 +78,8 @@ export default function Controller({ api, room }: Props) {
     // The server tells the aim only when the controller cannot know it: at first and after returning
     else if (message.type === "aim" && message.id === selfNow.current) {
       setAim({ angle: message.angle, power: message.power });
+    } else if (message.type === "reload") {
+      setReload({ until: performance.now() + message.time, time: message.time });
     } else if (message.type === "say" && message.id === selfNow.current) {
       showBubble(message.id, message.text);
     } else if (message.type === "error") {
@@ -129,6 +134,16 @@ export default function Controller({ api, room }: Props) {
       {state.phase === "playing" && aim && (
         <>
           <AimControl angle={aim.angle} power={aim.power} color={playerColor(me.id)} onChange={changeAim} />
+          <FireControl
+            reloadedAt={reload.until}
+            reloadTime={reload.time}
+            onFire={() => {
+              // The aim that was just set goes before the shot, not after it
+              if (Object.keys(unsent.current).length > 0 && api.send({ type: "aim", ...unsent.current }))
+                unsent.current = {};
+              api.send({ type: "fire" });
+            }}
+          />
           <SayControl onSay={(text) => api.send({ type: "say", text })} />
           {said !== undefined && (
             <p className="note" role="status">

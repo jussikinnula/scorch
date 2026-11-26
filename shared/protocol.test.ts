@@ -21,6 +21,7 @@ describe("isClientMessage", () => {
       { type: "settings", settings: { maxPlayers: 8 } },
       { type: "kick", id: 0 },
       { type: "start" },
+      { type: "fire" },
       { type: "aim", angle: 0 },
       { type: "aim", power: 1000 },
       { type: "aim", angle: 180, power: 0 },
@@ -98,7 +99,8 @@ describe("the version of the protocol", () => {
    * of a version that has been deployed: a client and a server of the same version must agree.
    */
   const FINGERPRINTS: Record<number, string> = {
-    2: "6fd94d4f0804eed9"
+    2: "6fd94d4f0804eed9",
+    3: "33e986dc878d9fea"
   };
 
   it("is raised when the protocol changes", () => {

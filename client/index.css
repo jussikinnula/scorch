@@ -394,6 +394,54 @@ a.button {
   touch-action: none;
 }
 
+/* The fire button, on the phone */
+
+.fire {
+  position: relative;
+  display: block;
+  width: 100%;
+  max-width: 28rem;
+  margin: 1.5rem auto 0;
+  padding: 1.25rem;
+  overflow: hidden;
+  border-color: transparent;
+  background: #d8342a;
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  touch-action: manipulation;
+}
+
+.fire:disabled {
+  opacity: 1;
+  background: #3a2a2a;
+  color: var(--dim);
+}
+
+.fire__label {
+  position: relative;
+}
+
+/* The reload fills the button from the left */
+.fire__reload {
+  position: absolute;
+  inset: 0;
+  background: #6a2a26;
+  transform-origin: left;
+  animation: reload linear forwards;
+}
+
+@keyframes reload {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
 /* The field for a speech bubble, on the phone */
 
 .say {

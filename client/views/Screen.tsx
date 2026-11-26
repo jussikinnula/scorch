@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import { FieldState, MAX_PLAYERS, MIN_PLAYERS, RoomState } from "../../shared/protocol";
-import Field from "../components/Field";
+import Field, { noAction } from "../components/Field";
 import PlayerList from "../components/PlayerList";
 import QrCode from "../components/QrCode";
 import TestPhoneButton from "../components/TestPhoneButton";
 import { Api, useApiMessages } from "../hooks/useApiConnection";
+import { applyTerrainOp } from "../../shared/sim/terrain";
 import { useBubbles } from "../hooks/useBubbles";
 import { toUrl } from "../routes";
 import { loadHostKey, saveHostKey } from "../session";
@@ -32,6 +33,9 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
   const [token, setToken] = useState<string | null>(null);
   const [field, setField] = useState<FieldState | null>(null);
   const { bubbles, say } = useBubbles();
+  // The projectiles and the explosions move too fast to go through the state of the view
+  const action = useRef(noAction());
+  const [flying, setFlying] = useState(0);
   const [problem, setProblem] = useState<Problem | null>(null);
   // After a problem the screen does not ask for the room again, e.g. to not fight another tab over it
   const stopped = useRef(false);
@@ -55,7 +59,24 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
     else if (message.type === "token") setToken(message.token);
     else if (message.type === "field") setField(message.field);
     else if (message.type === "say") say(message.id, message.text);
-    else if (message.type === "aim") {
+    else if (message.type === "shots") {
+      action.current.previous = action.current.shots;
+      action.current.shots = message.shots;
+      action.current.at = performance.now();
+      setFlying(message.shots.length);
+    } else if (message.type === "explode") {
+      const { x, y, radius } = message;
+      action.current.explosions.push({ x, y, radius, at: performance.now() });
+    } else if (message.type === "terrain") {
+      const { changes, tanks } = message;
+      setField((current) => {
+        if (!current) return current;
+        // The same changes as on the server, to a copy: the old terrain is still being drawn
+        const terrain = [...current.terrain];
+        changes.forEach((change) => applyTerrainOp(terrain, change, current.height));
+        return { ...current, terrain, tanks };
+      });
+    } else if (message.type === "aim") {
       const { id, angle, power } = message;
       setField(
         (current) =>
@@ -104,11 +125,14 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
     return (
       <section className="game">
         {field ? (
-          <Field field={field} players={players} bubbles={bubbles} />
+          <Field field={field} players={players} bubbles={bubbles} action={action.current} />
         ) : (
           <p className="note">Getting the playing field…</p>
         )}
         {/* The canvas is a picture: this tells the same to those who cannot see it */}
+        <p className="visually-hidden" role="status">
+          Projectiles in the air: {flying}
+        </p>
         <ul className="visually-hidden">
           {players.map((player) => {
             const tank = field?.tanks.find((candidate) => candidate.id === player.id);

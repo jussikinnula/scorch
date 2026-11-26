@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { layoutField, wrapText } from "./Field";
+import { layoutField, placeShots, wrapText } from "./Field";
 
 describe("layoutField", () => {
   const field = { width: 1280, height: 720 };
@@ -32,5 +32,28 @@ describe("wrapText", () => {
 
   it("cuts a word that is too long for a line", () => {
     expect(wrapText("aaaaaaaaaaaaaaaaaaaaaaaaa b", fits)).toEqual(["aaaaaaaaaa", "aaaaaaaaaa", "aaaaa b"]);
+  });
+});
+
+describe("placeShots", () => {
+  const previous = [{ id: 1, owner: 0, x: 100, y: 200 }];
+  const shots = [
+    { id: 1, owner: 0, x: 130, y: 180 },
+    { id: 2, owner: 1, x: 500, y: 500 }
+  ];
+
+  it("puts a projectile on the way from where it was to where it is", () => {
+    // The places are told every 50 milliseconds
+    expect(placeShots({ shots, previous, at: 1000 }, 1000)[0]).toMatchObject({ x: 100, y: 200 });
+    expect(placeShots({ shots, previous, at: 1000 }, 1025)[0]).toMatchObject({ x: 115, y: 190 });
+    expect(placeShots({ shots, previous, at: 1000 }, 1050)[0]).toMatchObject({ x: 130, y: 180 });
+  });
+
+  it("does not put a projectile past where it is known to be", () => {
+    expect(placeShots({ shots, previous, at: 1000 }, 5000)[0]).toMatchObject({ x: 130, y: 180 });
+  });
+
+  it("puts a new projectile where it is", () => {
+    expect(placeShots({ shots, previous, at: 1000 }, 1025)[1]).toEqual(shots[1]);
   });
 });
