@@ -57,6 +57,45 @@ describe("a hotseat game", () => {
       await screen.findByRole("heading", { name: "Waiting for players" }, FIND);
     };
 
+    /** Chooses the live mode in the lobby, for a test that fires without waiting for a turn. */
+    const chooseLive = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Live" }));
+      await vi.waitFor(
+        () => expect(screen.getByRole("button", { name: "Live" })).toHaveAttribute("aria-pressed", "true"),
+        FIND
+      );
+    };
+
+    it("counts quick clicks on a setting one by one", async () => {
+      await start();
+      await shownToken();
+      for (let clicks = 0; clicks < 5; clicks++) fireEvent.click(screen.getByRole("button", { name: "Fewer rounds" }));
+      await vi.waitFor(() => expect(screen.getByLabelText("Rounds")).toHaveTextContent("5"), FIND);
+    });
+
+    it("shows whose turn it is in the classic mode, and passes the turn after a shot", async () => {
+      await start();
+      const controllers = [await join("Ann"), await join("Bob")];
+      await screen.findByText("2 of 8 players", {}, FIND);
+      expect(screen.getByRole("button", { name: "Classic" })).toHaveAttribute("aria-pressed", "true");
+      fireEvent.click(screen.getByRole("button", { name: "Start the game" }));
+
+      const turn = await screen.findByRole("status", { name: "Turn" }, FIND);
+      const first = turn.textContent!.startsWith("Ann") ? 0 : 1;
+      await vi.waitFor(() => expect(turn).toHaveTextContent(/^(Ann|Bob)4[45]$/), FIND);
+
+      // The other one cannot fire
+      controllers[1 - first].send({ type: "fire" });
+      expect(await controllers[1 - first].next("error")).toEqual({ type: "error", code: "not-your-turn", re: "fire" });
+
+      controllers[first].send({ type: "aim", power: 60 });
+      controllers[first].send({ type: "fire" });
+      await vi.waitFor(
+        () => expect(screen.getByRole("status", { name: "Turn" })).toHaveTextContent(first === 0 ? /^Bob/ : /^Ann/),
+        FIND
+      );
+    });
+
     it("creates a room and shows the QR code of joining it", async () => {
       await start();
 
@@ -93,6 +132,7 @@ describe("a hotseat game", () => {
       await join("Ann");
       const bob = await join("Bob");
       await screen.findByText("2 of 8 players", {}, FIND);
+      await chooseLive();
       fireEvent.click(screen.getByRole("button", { name: "Start the game" }));
 
       expect(await screen.findByRole("img", { name: "The playing field" }, FIND)).toBeInTheDocument();
@@ -146,12 +186,47 @@ describe("a hotseat game", () => {
       fireEvent.click(screen.getByRole("button", { name: "More players" }));
       expect(await screen.findByText("2 of 9 players", {}, FIND)).toBeInTheDocument();
 
+      fireEvent.click(screen.getByRole("button", { name: "Fewer rounds" }));
+      await vi.waitFor(() => expect(screen.getByLabelText("Rounds")).toHaveTextContent("9"), FIND);
+
       for (let maximum = 9; maximum > 3; maximum--) {
         fireEvent.click(screen.getByRole("button", { name: "Fewer players" }));
         await screen.findByText(`2 of ${maximum - 1} players`, {}, FIND);
       }
       await join("Cat");
       expect(await screen.findByRole("img", { name: "The playing field" }, FIND)).toBeInTheDocument();
+    });
+
+    it("shows who won a round and the game, and goes back to the lobby for a new game", async () => {
+      await start();
+      await join("Ann");
+      const bob = await join("Bob");
+      await screen.findByText("2 of 8 players", {}, FIND);
+      for (let rounds = 10; rounds > 1; rounds--) {
+        fireEvent.click(screen.getByRole("button", { name: "Fewer rounds" }));
+        await vi.waitFor(() => expect(screen.getByLabelText("Rounds")).toHaveTextContent(String(rounds - 1)), FIND);
+      }
+      await chooseLive();
+      fireEvent.click(screen.getByRole("button", { name: "Start the game" }));
+      await screen.findByRole("img", { name: "The playing field" }, FIND);
+
+      // Bob fires straight up, and the shot comes down on his own tank
+      bob.send({ type: "aim", angle: 90, power: 100 });
+      bob.send({ type: "fire" });
+      const result = await screen.findByRole("alert", {}, FIND);
+      expect(result).toHaveTextContent("Round 1 of 1");
+      expect(result).toHaveTextContent("Ann wins");
+      expect(screen.getByLabelText("Rounds won by Ann")).toHaveTextContent("1");
+      expect(screen.getByLabelText("Energy of Bob")).toHaveTextContent("0");
+
+      // It was the only round: after a while the final results are shown
+      expect(await screen.findByRole("heading", { name: "Ann wins the game" }, { timeout: 8000 })).toBeInTheDocument();
+      expect(screen.getByText("1 round played")).toBeInTheDocument();
+      expect(screen.getByLabelText("Rounds won by Bob")).toHaveTextContent("0");
+
+      fireEvent.click(screen.getByRole("button", { name: "New game" }));
+      expect(await screen.findByRole("heading", { name: "Waiting for players" }, FIND)).toBeInTheDocument();
+      expect(await shownToken()).toHaveLength(10);
     });
 
     it("returns to its room when the page is opened again", async () => {
@@ -217,6 +292,8 @@ describe("a hotseat game", () => {
       ({ screen: host, room } = await openScreen(backend));
       clients.push(host);
       ({ token } = await host.next("token"));
+      // Most of these tests fire without waiting for a turn
+      host.send({ type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "live" } });
       window.location.hash = `#/join/${token}`;
     });
 
@@ -372,6 +449,53 @@ describe("a hotseat game", () => {
       const energy = Number(screen.getByLabelText("Energy").textContent);
       // The tank cannot fire harder than its energy allows any more
       expect(screen.getByLabelText("Power")).toHaveAttribute("max", String(energy * 10));
+    });
+
+    it("tells who won a round and the game", async () => {
+      await joinAs("Ann");
+      const bob = await openController(backend, token, "Bob");
+      clients.push(bob);
+      host.send({ type: "settings", settings: { maxPlayers: 8, rounds: 1, turns: "live" } });
+      host.send({ type: "start" });
+      await screen.findByLabelText("Energy", {}, FIND);
+
+      bob.send({ type: "aim", angle: 90, power: 100 });
+      bob.send({ type: "fire" });
+      expect(await screen.findByRole("alert", {}, FIND)).toHaveTextContent(
+        "You won the round! That was the last round."
+      );
+      expect(await screen.findByText("You won the game!", {}, { timeout: 8000 })).toBeInTheDocument();
+      expect(screen.getByLabelText("Rounds won by Ann")).toHaveTextContent("1");
+      expect(screen.queryByRole("button", { name: "Fire" })).not.toBeInTheDocument();
+    });
+
+    it("tells when it is the turn of the player in the classic mode, and lets the player fire only then", async () => {
+      host.send({ type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "classic" } });
+      await joinAs("Ann");
+      const bob = await openController(backend, token, "Bob");
+      clients.push(bob);
+      host.send({ type: "start" });
+      const turn = await screen.findByRole("status", { name: "Turn" }, FIND);
+
+      if (!turn.textContent!.startsWith("Your turn")) {
+        // Bob has the first turn: Ann waits until his shot is over
+        expect(turn).toHaveTextContent("Bob is aiming");
+        expect(screen.getByRole("button", { name: "Wait" })).toBeDisabled();
+        bob.send({ type: "aim", power: 60 });
+        bob.send({ type: "fire" });
+      }
+      await vi.waitFor(
+        () => expect(screen.getByRole("status", { name: "Turn" })).toHaveTextContent(/^Your turn · 4[45]$/),
+        FIND
+      );
+
+      fireEvent.change(screen.getByLabelText("Power"), { target: { value: "60" } });
+      fireEvent.click(screen.getByRole("button", { name: "Fire" }));
+      await vi.waitFor(
+        () => expect(screen.getByRole("status", { name: "Turn" })).toHaveTextContent("Bob is aiming"),
+        FIND
+      );
+      expect(screen.getByRole("button", { name: "Wait" })).toBeDisabled();
     });
 
     it("says something in a speech bubble", async () => {

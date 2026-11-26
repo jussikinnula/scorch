@@ -1,13 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 
-import { FieldState, MAX_PLAYERS, MIN_PLAYERS, RoomState } from "../../shared/protocol";
+import { FieldState, MAX_PLAYERS, MAX_ROUNDS, MIN_PLAYERS, MIN_ROUNDS, RoomState } from "../../shared/protocol";
 import Field, { noAction } from "../components/Field";
 import PlayerList from "../components/PlayerList";
 import QrCode from "../components/QrCode";
+import Standings, { ranked } from "../components/Standings";
 import TestPhoneButton from "../components/TestPhoneButton";
 import { Api, useApiMessages } from "../hooks/useApiConnection";
 import { applyTerrainOp } from "../../shared/sim/terrain";
 import { useBubbles } from "../hooks/useBubbles";
+import { useCountdown } from "../hooks/useCountdown";
 import { toUrl } from "../routes";
 import { loadHostKey, saveHostKey } from "../session";
 
@@ -42,6 +44,11 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
   // After a problem the screen does not ask for the room again, e.g. to not fight another tab over it
   const stopped = useRef(false);
 
+  // The settings as they will be once what was just clicked has gone through the server: a click
+  // changes these, so that several quick clicks are not all counted from the same old settings
+  const wanted = useRef<RoomState["settings"] | null>(null);
+  const turnTime = useCountdown(state?.turn ? state.turn.time : null, state);
+
   const stop = (reason: Problem) => {
     stopped.current = true;
     setProblem(reason);
@@ -57,8 +64,10 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
   }, [api, room]);
 
   useApiMessages(api, (message) => {
-    if (message.type === "room" && message.state.room === room) setState(message.state);
-    else if (message.type === "token") setToken(message.token);
+    if (message.type === "room" && message.state.room === room) {
+      setState(message.state);
+      wanted.current = message.state.settings;
+    } else if (message.type === "token") setToken(message.token);
     else if (message.type === "field") {
       setField(message.field);
       // A new field is a new round: the result of the old one has been seen
@@ -125,13 +134,34 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
   const joinUrl = token && toUrl({ view: "join", token });
   const full = players.length >= settings.maxPlayers;
   const away = players.filter((player) => !player.connected).length;
-  const setMaxPlayers = (maxPlayers: number) => api.send({ type: "settings", settings: { maxPlayers } });
+  const change = (changed: Partial<RoomState["settings"]>) => {
+    wanted.current = { ...(wanted.current ?? settings), ...changed };
+    api.send({ type: "settings", settings: wanted.current });
+  };
+  const setMaxPlayers = (by: number) => change({ maxPlayers: (wanted.current ?? settings).maxPlayers + by });
+  const setRounds = (by: number) => change({ rounds: (wanted.current ?? settings).rounds + by });
+
+  if (phase === "finished") {
+    const [winner, second] = ranked(players);
+    return (
+      <section className="view results">
+        <h2>{winner && winner.wins > (second?.wins ?? -1) ? `${winner.name} wins the game` : "The game is a draw"}</h2>
+        <p className="note">
+          {state.round} {state.round === 1 ? "round" : "rounds"} played
+        </p>
+        <Standings players={players} />
+        <button className="button button--primary" onClick={() => api.send({ type: "lobby" })}>
+          New game
+        </button>
+      </section>
+    );
+  }
 
   if (phase === "playing") {
     return (
       <section className="game">
         {field ? (
-          <Field field={field} players={players} bubbles={bubbles} action={action.current} />
+          <Field field={field} players={players} bubbles={bubbles} action={action.current} turn={state.turn?.player} />
         ) : (
           <p className="note">Getting the playing field…</p>
         )}
@@ -160,13 +190,22 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
             );
           })}
         </ul>
+        {state.turn && !result && (
+          <p className="game__turn" role="status" aria-label="Turn">
+            {players.find((player) => player.id === state.turn?.player)?.name}
+            {turnTime !== null && turnTime > 0 && <span>{turnTime}</span>}
+          </p>
+        )}
         {result && (
-          <p className="game__result" role="alert">
-            <span>Round {result.round}</span>
+          <div className="game__result" role="alert">
+            <span>
+              Round {result.round} of {settings.rounds}
+            </span>
             {result.winner === null
               ? "Nobody is left"
               : `${players.find((player) => player.id === result.winner)?.name ?? "?"} wins`}
-          </p>
+            <Standings players={players} />
+          </div>
         )}
         {!api.connected && (
           <p className="game__notice" role="status">
@@ -205,7 +244,7 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
             <button
               className="button button--small"
               aria-label="Fewer players"
-              onClick={() => setMaxPlayers(settings.maxPlayers - 1)}
+              onClick={() => setMaxPlayers(-1)}
               disabled={settings.maxPlayers <= Math.max(MIN_PLAYERS, players.length)}
             >
               −
@@ -214,8 +253,50 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
             <button
               className="button button--small"
               aria-label="More players"
-              onClick={() => setMaxPlayers(settings.maxPlayers + 1)}
+              onClick={() => setMaxPlayers(1)}
               disabled={settings.maxPlayers >= MAX_PLAYERS}
+            >
+              +
+            </button>
+          </div>
+          <div className="stepper" role="group" aria-label="Turns">
+            <span>Turns</span>
+            <button
+              className={`button button--small${settings.turns === "classic" ? " button--chosen" : ""}`}
+              aria-pressed={settings.turns === "classic"}
+              onClick={() => change({ turns: "classic" })}
+            >
+              Classic
+            </button>
+            <button
+              className={`button button--small${settings.turns === "live" ? " button--chosen" : ""}`}
+              aria-pressed={settings.turns === "live"}
+              onClick={() => change({ turns: "live" })}
+            >
+              Live
+            </button>
+          </div>
+          <p className="note">
+            {settings.turns === "classic"
+              ? "Classic: one player at a time aims and fires."
+              : "Live: everyone fires whenever their tank has reloaded."}
+          </p>
+          <div className="stepper">
+            <span id="rounds">Rounds</span>
+            <button
+              className="button button--small"
+              aria-label="Fewer rounds"
+              onClick={() => setRounds(-1)}
+              disabled={settings.rounds <= MIN_ROUNDS}
+            >
+              −
+            </button>
+            <output aria-labelledby="rounds">{settings.rounds}</output>
+            <button
+              className="button button--small"
+              aria-label="More rounds"
+              onClick={() => setRounds(1)}
+              disabled={settings.rounds >= MAX_ROUNDS}
             >
               +
             </button>

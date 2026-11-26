@@ -18,7 +18,8 @@ describe("isClientMessage", () => {
       { type: "resume", room: "k3v9x2ab", playerKey: "Zm9v_YmFy-0" },
       { type: "rejoin", token: "a1b2c3d4e5", playerKey: "Zm9v_YmFy-0" },
       { type: "leave" },
-      { type: "settings", settings: { maxPlayers: 8 } },
+      { type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "live" } },
+      { type: "lobby" },
       { type: "kick", id: 0 },
       { type: "start" },
       { type: "fire" },
@@ -48,8 +49,13 @@ describe("isClientMessage", () => {
       { type: "rejoin", token: "a1b2c3d4e5" },
       { type: "rejoin", playerKey: "Zm9v_YmFy-0" },
       { type: "settings" },
-      { type: "settings", settings: { maxPlayers: 1 } },
-      { type: "settings", settings: { maxPlayers: 11 } },
+      { type: "settings", settings: { maxPlayers: 1, rounds: 10, turns: "live" } },
+      { type: "settings", settings: { maxPlayers: 11, rounds: 10, turns: "live" } },
+      { type: "settings", settings: { maxPlayers: 8 } },
+      { type: "settings", settings: { maxPlayers: 8, rounds: 10 } },
+      { type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "fast" } },
+      { type: "settings", settings: { maxPlayers: 8, rounds: 0, turns: "live" } },
+      { type: "settings", settings: { maxPlayers: 8, rounds: 1001, turns: "live" } },
       { type: "kick" },
       { type: "kick", id: -1 },
       { type: "kick", id: 10 },
@@ -80,10 +86,13 @@ describe("isClientMessage", () => {
 });
 
 describe("isRoomSettings", () => {
-  it("accepts a maximum number of players of 2-10", () => {
-    expect(isRoomSettings({ maxPlayers: 2 })).toBe(true);
-    expect(isRoomSettings({ maxPlayers: 10 })).toBe(true);
-    expect(isRoomSettings({ maxPlayers: 8.5 })).toBe(false);
+  it("accepts 2-10 players and 1-1000 rounds", () => {
+    expect(isRoomSettings({ maxPlayers: 2, rounds: 1, turns: "live" })).toBe(true);
+    expect(isRoomSettings({ maxPlayers: 2, rounds: 1, turns: "classic" })).toBe(true);
+    expect(isRoomSettings({ maxPlayers: 2, rounds: 1 })).toBe(false);
+    expect(isRoomSettings({ maxPlayers: 10, rounds: 1000, turns: "live" })).toBe(true);
+    expect(isRoomSettings({ maxPlayers: 8.5, rounds: 10, turns: "live" })).toBe(false);
+    expect(isRoomSettings({ maxPlayers: 8, rounds: 2.5 })).toBe(false);
     expect(isRoomSettings({})).toBe(false);
     expect(isRoomSettings(null)).toBe(false);
   });
@@ -101,7 +110,9 @@ describe("the version of the protocol", () => {
   const FINGERPRINTS: Record<number, string> = {
     2: "6fd94d4f0804eed9",
     3: "33e986dc878d9fea",
-    4: "d252a3503257c8fd"
+    4: "d252a3503257c8fd",
+    5: "81ea370a0695494a",
+    6: "a1beab696b9687ab"
   };
 
   it("is raised when the protocol changes", () => {
