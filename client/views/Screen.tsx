@@ -36,6 +36,8 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
   // The projectiles and the explosions move too fast to go through the state of the view
   const action = useRef(noAction());
   const [flying, setFlying] = useState(0);
+  /** The result of the round that just ended, while it is shown. */
+  const [result, setResult] = useState<{ round: number; winner: number | null } | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
   // After a problem the screen does not ask for the room again, e.g. to not fight another tab over it
   const stopped = useRef(false);
@@ -57,7 +59,11 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
   useApiMessages(api, (message) => {
     if (message.type === "room" && message.state.room === room) setState(message.state);
     else if (message.type === "token") setToken(message.token);
-    else if (message.type === "field") setField(message.field);
+    else if (message.type === "field") {
+      setField(message.field);
+      // A new field is a new round: the result of the old one has been seen
+      setResult(null);
+    } else if (message.type === "roundOver") setResult({ round: message.round, winner: message.winner });
     else if (message.type === "say") say(message.id, message.text);
     else if (message.type === "shots") {
       action.current.previous = action.current.shots;
@@ -140,6 +146,7 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
               <li key={player.id}>
                 {player.name}
                 {!player.connected && " (disconnected)"}
+                {tank && <span aria-label={`Energy of ${player.name}`}>{tank.energy}</span>}
                 {bubbles[player.id] !== undefined && (
                   <span aria-label={`Speech bubble of ${player.name}`}>{bubbles[player.id]}</span>
                 )}
@@ -153,6 +160,14 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
             );
           })}
         </ul>
+        {result && (
+          <p className="game__result" role="alert">
+            <span>Round {result.round}</span>
+            {result.winner === null
+              ? "Nobody is left"
+              : `${players.find((player) => player.id === result.winner)?.name ?? "?"} wins`}
+          </p>
+        )}
         {!api.connected && (
           <p className="game__notice" role="status">
             Connection lost. Reconnecting…

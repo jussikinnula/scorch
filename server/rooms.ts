@@ -10,6 +10,7 @@ import {
   MIN_PLAYERS,
   PlayerInfo,
   RELOAD_TIME,
+  ROUND_PAUSE,
   SAY_INTERVAL,
   RoomMode,
   RoomPhase,
@@ -69,6 +70,10 @@ interface Room<Member> {
   /** The projectiles in the air. */
   shots: Shot[];
   nextShot: number;
+  /** The number of the round that is being played, from 1. 0 before the game. */
+  round: number;
+  /** Starts the next round, when a round has ended and its result is being shown. */
+  nextRoundTimer: ReturnType<typeof setTimeout> | null;
   token: string;
   /** The token before the newest one, which still lets a controller join. */
   previousToken: string | null;
@@ -210,6 +215,8 @@ class Rooms<Member> {
       field: null,
       shots: [],
       nextShot: 1,
+      round: 0,
+      nextRoundTimer: null,
       token: this.newToken(),
       previousToken: null,
       tokenChangedAt: Date.now(),
@@ -348,9 +355,11 @@ class Rooms<Member> {
     const { room, player } = session;
     const tank = room.field?.tanks.find((candidate) => candidate.id === player.id);
     if (!tank) return this.refuse(member, "wrong-phase", "aim");
+    if (tank.energy <= 0) return this.refuse(member, "destroyed", "aim");
 
     if (angle !== undefined) tank.angle = angle;
-    if (power !== undefined) tank.power = power;
+    // A tank cannot fire harder than its energy allows
+    if (power !== undefined) tank.power = Math.min(power, tank.energy * 10);
     // Not back to the controller: it already shows what the player did
     if (room.screen) this.send(room.screen, { type: "aim", id: tank.id, angle: tank.angle, power: tank.power });
   }
@@ -361,12 +370,35 @@ class Rooms<Member> {
     const { room, player } = session;
     const tank = room.field?.tanks.find((candidate) => candidate.id === player.id);
     if (!tank) return this.refuse(member, "wrong-phase", "fire");
+    if (tank.energy <= 0) return this.refuse(member, "destroyed", "fire");
+    // Nobody fires while the result of a round is shown
+    if (room.nextRoundTimer) return this.refuse(member, "wrong-phase", "fire");
     if (Date.now() < player.reloadedAt) return this.refuse(member, "reloading", "fire");
 
     player.reloadedAt = Date.now() + RELOAD_TIME;
     room.shots.push(launch(tank, room.nextShot++));
     this.send(member, { type: "reload", time: RELOAD_TIME });
     this.startTicker();
+  }
+
+  /**
+   * A round is over when at most one tank is left and nothing is in the air any more. Its result is
+   * told to everyone and shown for a while, and then the next round starts.
+   */
+  private endRoundIfOver(room: Room<Member>) {
+    if (!room.field || room.nextRoundTimer || room.shots.length > 0) return;
+    const left = room.field.tanks.filter((tank) => tank.energy > 0);
+    if (left.length > 1) return;
+
+    const message: ServerMessage = { type: "roundOver", round: room.round, winner: left[0]?.id ?? null };
+    if (room.screen) this.send(room.screen, message);
+    for (const player of room.players) if (player.member) this.send(player.member, message);
+    room.nextRoundTimer = setTimeout(() => {
+      room.nextRoundTimer = null;
+      this.begin(room);
+      this.announce(room);
+      this.sendField(room);
+    }, ROUND_PAUSE);
   }
 
   /** Starts moving the projectiles, if they are not moving already. */
@@ -389,8 +421,13 @@ class Rooms<Member> {
         const { shots, events } = stepShots(room.field, room.shots);
         room.shots = shots;
         for (const event of events) {
-          if (!room.screen) continue;
-          if (event.event === "explode") {
+          if (event.event === "damage") {
+            // The player is told the energy of its own tank; the screen gets it with the tanks below
+            const hit = room.players.find((player) => player.id === event.id);
+            if (hit?.member) this.send(hit.member, { type: "energy", energy: event.energy });
+          } else if (!room.screen) {
+            continue;
+          } else if (event.event === "explode") {
             this.send(room.screen, { type: "explode", x: event.x, y: event.y, radius: event.radius });
           } else {
             this.send(room.screen, { type: "terrain", changes: event.ops, tanks: room.field.tanks });
@@ -403,6 +440,7 @@ class Rooms<Member> {
         this.send(room.screen, { type: "shots", shots });
       }
       flying ||= room.shots.length > 0;
+      this.endRoundIfOver(room);
     }
     if (!flying) this.stopTicker();
   }
@@ -460,8 +498,12 @@ class Rooms<Member> {
 
   /** Starts the game: makes the playing field and tells each player the aim of its tank. */
   private begin(room: Room<Member>) {
-    const random = createRandom(this.seed ?? randomInt(2 ** 32));
+    // Each round has a terrain of its own, also when the seed is fixed for a test
+    const random = createRandom((this.seed ?? randomInt(2 ** 32)) + room.round);
     room.phase = "playing";
+    room.round += 1;
+    room.shots = [];
+    for (const player of room.players) player.reloadedAt = 0;
     room.field = createField(
       room.players.map((player) => player.id),
       random
@@ -476,13 +518,14 @@ class Rooms<Member> {
 
   /**
    * Tells a player what only the server knows about its tank, when the player cannot know it, at
-   * first and after returning: the aim, and how long the tank still reloads.
+   * the start of a round and after returning: the aim, how long the tank still reloads, and its energy.
    */
   private sendOwnAim(room: Room<Member>, player: Player<Member>) {
     const tank = room.field?.tanks.find((candidate) => candidate.id === player.id);
     if (tank && player.member) {
       this.send(player.member, { type: "aim", id: tank.id, angle: tank.angle, power: tank.power });
       this.send(player.member, { type: "reload", time: Math.max(0, player.reloadedAt - Date.now()) });
+      this.send(player.member, { type: "energy", energy: tank.energy });
     }
   }
 
@@ -538,7 +581,8 @@ class Rooms<Member> {
       phase: room.phase,
       settings: room.settings,
       players,
-      screen: room.screen !== null
+      screen: room.screen !== null,
+      round: room.round
     };
   }
 
@@ -552,6 +596,7 @@ class Rooms<Member> {
   private remove(room: Room<Member>) {
     clearInterval(room.tokenTimer);
     if (room.removeTimer) clearTimeout(room.removeTimer);
+    if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
     this.tokens.delete(room.token);
     if (room.previousToken) this.tokens.delete(room.previousToken);
     this.rooms.delete(room.id);

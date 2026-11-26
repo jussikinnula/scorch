@@ -1,11 +1,13 @@
 import React, { PointerEvent, useRef } from "react";
 
-import { MAX_ANGLE, MAX_POWER, MIN_ANGLE, MIN_POWER } from "../../shared/protocol";
+import { MAX_ANGLE, MIN_ANGLE, MIN_POWER } from "../../shared/protocol";
 
 interface Props {
   /** The angle of the turret in degrees: 0 points right, 90 up and 180 left. */
   angle: number;
   power: number;
+  /** The most power the tank can fire with: ten times its energy. */
+  maxPower: number;
   /** The colour of the tank of the player. */
   color: string;
   onChange: (aim: { angle?: number; power?: number }) => void;
@@ -31,11 +33,11 @@ const point = (angle: number, distance: number) => ({
  * The controls of the aim of a tank: a dial that is dragged to turn the turret, a slider for the
  * power, and buttons for fine adjustment of both.
  */
-export default function AimControl({ angle, power, color, onChange }: Props) {
+export default function AimControl({ angle, power, maxPower, color, onChange }: Props) {
   const dial = useRef<SVGSVGElement>(null);
 
   const setAngle = (value: number) => onChange({ angle: clamp(Math.round(value), MIN_ANGLE, MAX_ANGLE) });
-  const setPower = (value: number) => onChange({ power: clamp(Math.round(value), MIN_POWER, MAX_POWER) });
+  const setPower = (value: number) => onChange({ power: clamp(Math.round(value), MIN_POWER, maxPower) });
 
   /** Turns the turret to point at where the dial is touched. */
   const pointAt = (event: PointerEvent) => {
@@ -101,7 +103,7 @@ export default function AimControl({ angle, power, color, onChange }: Props) {
         className="aim__power"
         type="range"
         min={MIN_POWER}
-        max={MAX_POWER}
+        max={maxPower}
         value={power}
         onChange={(event) => setPower(Number(event.target.value))}
       />

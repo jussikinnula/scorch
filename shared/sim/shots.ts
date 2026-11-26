@@ -24,6 +24,13 @@ export const SPEED_PER_POWER = (0.02 * ORIGINAL_SCALE) / ORIGINAL_STEP;
 export const BORDER = 75 * ORIGINAL_SCALE;
 /** The radius of the explosion of the only weapon so far, the Baby Missile. */
 export const BABY_MISSILE_RADIUS = 10 * ORIGINAL_SCALE;
+/**
+ * The energy a tank loses when an explosion touches its body: all of it. In the original a Baby
+ * Missile that comes down on a whole tank destroys it, and two that landed beside one took 21 and 31
+ * of its energy (docs/ORIGINAL.md, "Damage"). A damage that falls evenly from all of the energy at
+ * the body to nothing a radius away fits all three, but the shape of the fall is not measured yet.
+ */
+export const DIRECT_HIT_DAMAGE = 100;
 
 /** A projectile in the air. */
 export interface Shot {
@@ -42,7 +49,9 @@ export type ShotEvent =
   /** A projectile exploded. */
   | { event: "explode"; x: number; y: number; radius: number }
   /** The terrain changed. */
-  | { event: "terrain"; ops: TerrainOp[] };
+  | { event: "terrain"; ops: TerrainOp[] }
+  /** A tank was damaged. Its energy is what is left; 0 means it was destroyed. */
+  | { event: "damage"; id: number; energy: number };
 
 /** The tip of the turret of a tank: where its projectiles start. */
 export function turretTip(tank: TankState) {
@@ -60,9 +69,21 @@ export function launch(tank: TankState, id: number): Shot {
   return { id, owner: tank.id, ...turretTip(tank), vx: Math.cos(angle) * speed, vy: -Math.sin(angle) * speed };
 }
 
-/** Whether a point is inside the body of a tank. */
+/** Whether a point is inside the body of a tank. A wreck does not stop a projectile. */
 const hitsTank = (tank: TankState, x: number, y: number) =>
-  Math.abs(x - tank.x) <= TANK_WIDTH / 2 && y <= tank.y && y >= tank.y - TANK_HEIGHT;
+  tank.energy > 0 && Math.abs(x - tank.x) <= TANK_WIDTH / 2 && y <= tank.y && y >= tank.y - TANK_HEIGHT;
+
+/**
+ * The energy an explosion takes from a tank: all of it when the explosion is at the body of the
+ * tank, less in proportion to the distance from the body, and none a radius away or further.
+ */
+export function damageTo(tank: TankState, x: number, y: number, radius: number) {
+  // The distance from the middle of the explosion to the nearest point of the body
+  const dx = Math.max(0, Math.abs(x - tank.x) - TANK_WIDTH / 2);
+  const dy = Math.max(0, tank.y - TANK_HEIGHT - y, y - tank.y);
+  const distance = Math.hypot(dx, dy);
+  return distance >= radius ? 0 : Math.max(1, Math.round(DIRECT_HIT_DAMAGE * (1 - distance / radius)));
+}
 
 /**
  * Moves the projectiles one step of the simulation forward, and makes what follows happen to the
@@ -94,8 +115,19 @@ export function stepShots(field: FieldState, shots: Shot[]): { shots: Shot[]; ev
       const at = { x: Math.round(hit.x), y: Math.round(hit.y) };
       const ops: TerrainOp[] = [{ op: "carve", ...at, r: BABY_MISSILE_RADIUS }, { op: "settle" }];
       ops.forEach((op) => applyTerrainOp(field.terrain, op, field.height));
-      for (const tank of field.tanks) tank.y = groundAt(field.terrain, tank.x, field.height);
-      events.push({ event: "explode", ...at, radius: BABY_MISSILE_RADIUS }, { event: "terrain", ops });
+      events.push({ event: "explode", ...at, radius: BABY_MISSILE_RADIUS });
+      for (const tank of field.tanks) {
+        // The damage is by where the tank was when the explosion happened, before it came down
+        const damage = tank.energy > 0 ? damageTo(tank, at.x, at.y, BABY_MISSILE_RADIUS) : 0;
+        if (damage > 0) {
+          tank.energy = Math.max(0, tank.energy - damage);
+          // A tank cannot fire harder than its energy allows
+          tank.power = Math.min(tank.power, tank.energy * 10);
+          events.push({ event: "damage", id: tank.id, energy: tank.energy });
+        }
+        tank.y = groundAt(field.terrain, tank.x, field.height);
+      }
+      events.push({ event: "terrain", ops });
     } else if (to.x >= -BORDER && to.x <= field.width + BORDER && to.y < field.height) {
       // Above the field a projectile flies on: it comes back down. Past the sides or the bottom it is gone.
       flying.push({ ...shot, ...to, vy });

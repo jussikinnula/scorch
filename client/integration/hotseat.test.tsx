@@ -37,7 +37,8 @@ describe("a hotseat game", () => {
     vi.stubGlobal("__COMMIT__", "");
     vi.stubGlobal("__PLAYER_TESTING_MODE__", false);
     window.location.hash = "";
-    backend = await startBackend({ allowedOrigins: [window.location.origin, "http://localhost"] });
+    // The terrain is the same every time, so that a shot lands where it did the last time
+    backend = await startBackend({ allowedOrigins: [window.location.origin, "http://localhost"], rooms: { seed: 1 } });
   });
 
   afterEach(async () => {
@@ -104,13 +105,18 @@ describe("a hotseat game", () => {
       bob.send({ type: "aim", angle: 135 });
       await vi.waitFor(() => expect(screen.getByLabelText("Aim of Bob")).toHaveTextContent("45° ← · 900"), FIND);
 
-      // A shot straight up at low power comes down on the tank
+      // A shot steeply up at low power lands beside the tank
       expect(screen.getByText("Projectiles in the air: 0")).toBeInTheDocument();
-      bob.send({ type: "aim", angle: 90, power: 80 });
+      bob.send({ type: "aim", angle: 80, power: 100 });
       bob.send({ type: "fire" });
       expect(await screen.findByText("Projectiles in the air: 1", {}, FIND)).toBeInTheDocument();
       expect(await screen.findByText("Projectiles in the air: 0", {}, FIND)).toBeInTheDocument();
-      bob.send({ type: "aim", angle: 135, power: 900 });
+      // The shot hit its own tank, which has less energy now and cannot fire as hard as before
+      const energy = Number(screen.getByLabelText("Energy of Bob").textContent);
+      expect(energy).toBeLessThan(100);
+      bob.send({ type: "aim", angle: 135, power: 1000 });
+      const aim = `45° ← · ${energy * 10}`;
+      await vi.waitFor(() => expect(screen.getByLabelText("Aim of Bob")).toHaveTextContent(aim), FIND);
 
       bob.send({ type: "say", text: "Eat this!" });
       expect(await screen.findByLabelText("Speech bubble of Bob", {}, FIND)).toHaveTextContent("Eat this!");
@@ -118,7 +124,8 @@ describe("a hotseat game", () => {
       cleanup();
       render(<App apiUrl={backend.url} />);
       expect(await screen.findByRole("img", { name: "The playing field" }, FIND)).toBeInTheDocument();
-      expect(screen.getByLabelText("Aim of Bob")).toHaveTextContent("45° ← · 900");
+      expect(screen.getByLabelText("Aim of Bob")).toHaveTextContent(aim);
+      expect(screen.getByLabelText("Energy of Bob")).toHaveTextContent(String(energy));
     });
 
     it("removes a player", async () => {
@@ -345,6 +352,26 @@ describe("a hotseat game", () => {
       // At so little power the shot comes down close by
       const { x } = (await host.next("field")).field.tanks[0];
       expect(Math.abs((await host.next("explode")).x - x)).toBeLessThan(40);
+    });
+
+    it("shows the energy of the tank, and loses some of it when its own shot comes down on it", async () => {
+      await joinAs("Ann");
+      clients.push(await openController(backend, token, "Bob"));
+      host.send({ type: "start" });
+      expect(await screen.findByLabelText("Energy", {}, FIND)).toHaveTextContent("100");
+      expect(screen.getByLabelText("Power")).toHaveAttribute("max", "1000");
+
+      // Steeply at low power: the shot lands beside the tank
+      const { angle } = (await host.next("field")).field.tanks[0];
+      const turn = screen.getByRole("button", { name: angle < 90 ? "Turn the turret left" : "Turn the turret right" });
+      for (let degrees = 20; degrees > 0; degrees--) fireEvent.click(turn);
+      fireEvent.change(screen.getByLabelText("Power"), { target: { value: "100" } });
+      fireEvent.click(screen.getByRole("button", { name: "Fire" }));
+
+      await vi.waitFor(() => expect(Number(screen.getByLabelText("Energy").textContent)).toBeLessThan(100), FIND);
+      const energy = Number(screen.getByLabelText("Energy").textContent);
+      // The tank cannot fire harder than its energy allows any more
+      expect(screen.getByLabelText("Power")).toHaveAttribute("max", String(energy * 10));
     });
 
     it("says something in a speech bubble", async () => {

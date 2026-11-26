@@ -19,7 +19,7 @@ export const SOCKET_PATH = "/ws";
  * A client tells its version in the address it connects to (see socketPath), the server in its
  * greeting. The test of this file fails when the messages change and the version does not.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** The name of the part of the address of the WebSocket API where a client tells its version. */
 export const PROTOCOL_PARAMETER = "protocol";
@@ -51,6 +51,10 @@ export const AIM_INTERVAL = 50;
 export const SAY_INTERVAL = 2000;
 /** How long a tank reloads after firing, in milliseconds. So far there is one weapon, the Baby Missile. */
 export const RELOAD_TIME = 3000;
+/** The energy of a new tank. A tank is destroyed when its energy is 0. */
+export const MAX_ENERGY = 100;
+/** How long the result of a round is shown before the next round starts, in milliseconds. */
+export const ROUND_PAUSE = 5000;
 /** How often those who show the field are told where the projectiles are, in milliseconds. */
 export const SHOTS_INTERVAL = 50;
 
@@ -87,6 +91,8 @@ export interface RoomState {
   players: PlayerInfo[];
   /** Whether the screen of a hotseat room is connected. The game is paused while it is not. */
   screen: boolean;
+  /** The number of the round that is being played, from 1. 0 before the game. */
+  round: number;
 }
 
 /** A tank on the playing field. */
@@ -97,7 +103,10 @@ export interface TankState {
   x: number;
   y: number;
   angle: number;
+  /** At most ten times the energy of the tank, as in the original. */
   power: number;
+  /** From 100 down to 0. A tank with no energy is destroyed: it stays on the field as a wreck. */
+  energy: number;
 }
 
 /** A projectile in the air, as it is shown. */
@@ -155,6 +164,8 @@ export type ErrorCode =
   | "rate-limited"
   /** The tank is still reloading after its last shot. */
   | "reloading"
+  /** The tank of the player has been destroyed. */
+  | "destroyed"
   /** Another connection took over this screen or this player. The server closes this one. */
   | "replaced";
 
@@ -208,13 +219,17 @@ export type ServerMessage =
   | { type: "field"; field: FieldState }
   /** To those who show the playing field: the aim of a tank changed. To a controller: the aim of its own tank, when it cannot know it. */
   | { type: "aim"; id: number; angle: number; power: number }
+  /** To a player: the energy of its tank, at first and whenever it changes. */
+  | { type: "energy"; energy: number }
+  /** To everyone in the room: the round ended. The winner is the id of the player whose tank is left, null if none is. */
+  | { type: "roundOver"; round: number; winner: number | null }
   /** To a player: how long its tank still reloads, in milliseconds. 0 when it can fire. */
   | { type: "reload"; time: number }
   /** To those who show the playing field: all the projectiles in the air, while there are any, and once more when there are none. */
   | { type: "shots"; shots: ShotState[] }
   /** To those who show the playing field: an explosion. */
   | { type: "explode"; x: number; y: number; radius: number }
-  /** To those who show the playing field: the dirt changed, and the tanks are where they are after it. */
+  /** To those who show the playing field: the dirt changed, and the tanks are as they are after it: where, and with what energy. */
   | { type: "terrain"; changes: TerrainChange[]; tanks: TankState[] }
   /** To those who show the playing field, and to the one who said it: a speech bubble. */
   | { type: "say"; id: number; text: string };

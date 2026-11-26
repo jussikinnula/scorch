@@ -2,7 +2,7 @@
 
 How the clients and the server talk to each other. The types of the messages and the limits are in [`shared/protocol.ts`](../shared/protocol.ts), which both sides import; this document tells how they are used and why.
 
-Status: everything up to "Later" is implemented (protocol version 3): the rooms (creating one, joining it with the QR code, the lobby, returning after a lost connection), the playing field, turning the turret, firing and the speech bubbles.
+Status: everything up to "Later" is implemented (protocol version 4): the rooms (creating one, joining it with the QR code, the lobby, returning after a lost connection), the playing field, turning the turret, firing, damage, rounds and the speech bubbles.
 
 The scope is the first playable slice of [PLAN.md](PLAN.md): a hotseat room, joining with the QR code, tanks on the screen, turning the turret and the speech bubbles. Firing, the shop and online rooms are sketched at the end, so that this design leaves room for them.
 
@@ -120,7 +120,7 @@ Joining is open again between the rounds, once the game has rounds.
 - **A controller**: the player stays in the room with `connected: false`, and the tank stays on the field. `resume` brings the player back. The others see the player as disconnected, not as gone: only the screen removing the player, or the player leaving, takes the player out of the game.
 - **The screen**: the room stays, with `screen: false`. The controllers show that the screen is away. `host` brings it back. A room without a screen is removed after five minutes, and with it the keys of its players. The controllers that are connected get the error `no-room`.
 
-**A device that returns is told everything it needs.** After `host` or `resume` the server sends the whole of what that role shows, not only what has changed since: a device that returns may have missed anything, or may be a page that was just reloaded and knows nothing. Today that is the state of the room, for the screen also the join token and the playing field as it is now with the aims of all the tanks, and for a controller the aim of its own tank and how long it still reloads. Each later feature adds its part to this: the playing field for those who show it, and for a player its own aim, energy, money, inventory, turn and reload. Every such addition gets a test that returns in the middle of it (see PLAN.md, Testing).
+**A device that returns is told everything it needs.** After `host` or `resume` the server sends the whole of what that role shows, not only what has changed since: a device that returns may have missed anything, or may be a page that was just reloaded and knows nothing. Today that is the state of the room, for the screen also the join token and the playing field as it is now with the aims of all the tanks, and for a controller the aim of its own tank, how long it still reloads and its energy. Each later feature adds its part to this: the playing field for those who show it, and for a player its own aim, energy, money, inventory, turn and reload. Every such addition gets a test that returns in the middle of it (see PLAN.md, Testing).
 
 ## Playing: the first slice
 
@@ -174,7 +174,16 @@ controller                          server                          screen
 - **A change to the terrain** is told as what was done to it, not as a new terrain: `carve` (the dirt inside a circle is destroyed) and `settle` (the dirt that has nothing under it falls). The screen makes the same changes to its own copy with the code of `shared/sim/terrain.ts`, which uses only whole numbers and gives the same result everywhere. With the changes come the tanks as they are after them, because a tank comes down with the ground under it.
 - A screen that returns gets the whole `field` as it is now, craters and all, and the projectiles that are in the air in the next `shots`. A controller that returns gets a `reload` with the time that is left.
 
-No damage is done yet: an explosion only moves dirt.
+### Damage and rounds
+
+- A tank has an **energy** from 100 down to 0, which is in the tanks of the `field` and `terrain` messages. An explosion takes energy from the tanks its fire reaches, the more the closer it is (`shared/sim/shots.ts`): all of it when the explosion is at the body of the tank, as in the original, and less in proportion to the distance, down to nothing a blast radius away.
+- The player is told the energy of its own tank with `energy { energy }`: at the start of a round, whenever it changes, and when the controller returns.
+- **The power is at most ten times the energy**, as in the original. The server lowers the power of a tank that is damaged, and an `aim` with more power is cut to what the energy allows.
+- A tank with no energy is **destroyed**: it stays on the field as a wreck, a projectile flies through it, and its `aim` and `fire` are refused with the error `destroyed`. Its player can still use the speech bubbles.
+- **A round is over** when at most one tank is left and nothing is in the air. Everyone in the room is told `roundOver { round, winner }`, where the winner is the id of the player whose tank is left, or null if none is. Firing is refused with `wrong-phase` while the result is shown.
+- Five seconds later (`ROUND_PAUSE`) **the next round starts**: a new terrain, every tank whole again. The screen gets a new `field`, the players their `aim`, `reload` and `energy`, and everyone the state of the room, whose `round` is the number of the round from 1.
+
+There are no points or money yet, and no last round: the rounds go on until the screen leaves.
 
 ### Speech bubbles
 
@@ -207,6 +216,7 @@ When the server refuses something, it answers `error { code, re }`, where `re` i
 | `not-allowed`   | The client is not in a room, or its role may not do this.                                |
 | `wrong-phase`   | The room is not in a phase where this can be done, e.g. joining a game that has started. |
 | `reloading`     | The tank is still reloading after its last shot.                                         |
+| `destroyed`     | The tank of the player has been destroyed.                                               |
 | `rate-limited`  | Too many messages.                                                                       |
 | `replaced`      | Another connection took over this screen or player. The connection is closed.            |
 
@@ -228,7 +238,7 @@ Firing above has one weapon. The same messages carry the rest of the arsenal, be
 
 - A projectile gets a kind (which picks its look and sound) and a state: flying, rolling along the ground (the Rollers), burrowing (the Diggers and the Sandhogs, tunnelling). A MIRV that splits is one projectile that goes and five that appear.
 - More changes to the terrain: add a circle of dirt (Dirt Clod, Dirt Ball, Ton of Dirt), carve or add a wedge (Riot Charge, Dirt Charge). Weapons that change the terrain bit by bit (Liquid Dirt, Napalm, the Diggers) send a run of small changes.
-- More events: damage to a tank, a tank that starts to fall, a death. The effects and the sounds are played from the events.
+- More events: a tank that starts to fall, damage from the fall. The effects and the sounds are played from the events.
 - A checksum of the terrain now and then, as a safeguard: a screen whose terrain differs asks for the whole `field` again.
 - Wind, air viscosity and the walls only affect the calculation on the server.
 
