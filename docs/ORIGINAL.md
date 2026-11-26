@@ -1,0 +1,241 @@
+# The original game
+
+What Scorched Earth 1.5 (Wendell Hicken, 1995, shareware) can do, as a reference for [PLAN.md](PLAN.md). It is collected from the manual of the game (`SCORCH.DOC`), from the names of the settings inside `SCORCH.EXE`, and from running the game.
+
+Each fact is marked by where it comes from only when it is not the manual: **(seen)** means it was checked in the running game.
+
+## Running the original
+
+The game runs in [DOSBox-X](https://dosbox-x.com). Keep the files of the game in the folder `reference/` of the repository, which is in `.gitignore`: the game is not ours to redistribute.
+
+```
+dosbox-x -fastlaunch -time-limit 120 \
+  -set "dosbox machine=svga_s3" -set "cpu cycles=20000" \
+  -c "mount c reference" -c "c:" -c "scorch"
+```
+
+`-time-limit` (seconds) ends the run by itself, which makes a measurement repeatable: the same keys at the same times, and screenshots at known moments. On a machine without a display the same works under Xvfb, with the keys sent by `xdotool` and the screenshots taken with ImageMagick (`import -window root`). This is how the facts marked (seen) were checked.
+
+Useful keys **(seen)**: in the main menu the highlighted letter of an entry opens it (`e` Economics, `y` Physics, `l` Landscape, `t` Play Options, `w` Weapons, `h` Hardware, `s` Start) and Escape closes a menu. In a menu the highlighted letter of a setting steps its value up or to the next choice; how to step down has not been found yet (Alt with the letter did nothing). When the game starts, each player types a name and presses Enter twice. On the buying screen Tab changes between weapons and accessories; by the manual Page Down shows the next page.
+
+## Game settings
+
+The settings are stored in `SCORCH.CFG` under the names in the last column.
+
+### Main menu
+
+| Setting | Range  | Default | Key          |
+| ------- | ------ | ------- | ------------ |
+| Players | 2–10   | 2       | `MAXPLAYERS` |
+| Rounds  | 1–1000 | 10      | `MAXROUNDS`  |
+
+### Economics
+
+| Setting       | Range                   | Default  | Key             | Meaning                                                                                                                                                                                                                                 |
+| ------------- | ----------------------- | -------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Interest Rate | 0–0.30                  | 0.05     | `INTEREST_RATE` | Unspent money earns interest at the start of each round. Also affects the price of Auto Defense.                                                                                                                                        |
+| Cash at Start | $0–$1,000,000           | $0       | `INITIAL_CASH`  | If not zero, everyone gets to buy before the first round. One step is $5,000 **(seen)**.                                                                                                                                                |
+| Computers Buy | on/off                  | on       | `COMPUTERS_BUY` | Whether the computer players buy.                                                                                                                                                                                                       |
+| Free Market   | on/off                  | off      | `FREE_MARKET`   | The prices follow the demand, and the market is remembered between games in `SCORCH.MKT`.                                                                                                                                               |
+| Scoring Mode  | Basic, Standard, Greedy | Standard | `SCORING`       | Basic: points only for kills and for surviving. Standard: fewer points for a kill, points for all damage to tanks and shields. Greedy: as Standard, but the ranking is by net worth (cash plus the depreciated value of the inventory). |
+
+Points are money: what a player scores in a round is what there is to spend after it. A player loses points for hitting itself, and in team games for hitting a teammate.
+
+### Physics
+
+| Setting         | Range                                                               | Default | Key             |
+| --------------- | ------------------------------------------------------------------- | ------- | --------------- |
+| Air Viscosity   | 0–20                                                                | 0       | `AIR_VISCOSITY` |
+| Gravity         | 0.05–10                                                             | 0.2     | `GRAVITY`       |
+| Suspend Dirt    | 0–100 %                                                             | 0       | `SUSPEND_DIRT`  |
+| Tanks Fall      | on/off                                                              | on      | `FALLING_TANKS` |
+| Borders Extend  | 0–10000                                                             | 75      | `EDGES_EXTEND`  |
+| Effect of Walls | None, Concrete, Padded, Rubber, Spring, Wraparound, Random, Erratic | None    | `ELASTIC`       |
+
+- Suspend Dirt lets dirt stay in the air. The manual describes the number as the chance, per shot, that the dirt falls, which does not fit the default of 0 (dirt always falls); to be checked.
+- Borders Extend is how far outside the screen a projectile is followed before it counts as a miss.
+- Walls: Concrete stops a shot, Padded reflects it with a loss of energy, Rubber reflects it, Spring reflects it with a kick, Wraparound joins the left and the right edge. Random picks one for each round, Erratic for each shot. The colour of the border tells which is in effect.
+
+### Landscape
+
+| Setting                   | Range                                                       | Default | Key                   |
+| ------------------------- | ----------------------------------------------------------- | ------- | --------------------- |
+| Sky                       | Plain, Stormy, Stars, Shaded, Sunset, Cavern, Black, Random | Random  | `SKY`                 |
+| Max. Wind                 | 0–500                                                       | 200     | `MAX_WIND`            |
+| Changing Wind             | on/off                                                      | off     | `CHANGING_WIND`       |
+| Hostile Environment       | on/off                                                      | on      | `HOSTILE_ENVIRONMENT` |
+| Bumpiness                 | 0–100                                                       | 20      |                       |
+| Slope                     | 0–100                                                       | 20      |                       |
+| Flatten Peaks             | on/off                                                      | off     | `FLATLAND`            |
+| Random Land               | on/off                                                      | off     | `RANDOM_LAND`         |
+| Percent Scanned Mountains | 0–100                                                       | 20      | `MTN_PERCENT`         |
+
+Some skies attack by themselves (lightning in Stormy) when Hostile Environment is on. Cavern has a ceiling. Changing Wind changes the wind a little between each shot.
+
+### Play options
+
+| Setting          | Range                                            | Default    | Key                |
+| ---------------- | ------------------------------------------------ | ---------- | ------------------ |
+| Mode             | Sequential, Synchronous, Simultaneous            | Sequential | `PLAY_MODE`        |
+| Teams            | None, Standard, Corporate, Vicious               | None       | `TEAM_MODE`        |
+| Play Order       | Random, Losers-First, Winners-First, Round-Robin | Random     | `PLAY_ORDER`       |
+| Status Bar       | on/off                                           | off        | `STATUS_BAR`       |
+| Fast Computers   | on/off                                           | off        | `FAST_COMPUTERS`   |
+| Talking Tanks    | Off, Computers, All                              | Off        | `TALKING_TANKS`    |
+| Talk Probability | 0–100                                            | 100        | `TALK_PROBABILITY` |
+| Attack File      | a file                                           | talk1.cfg  | `ATTACK_COMMENTS`  |
+| Die File         | a file                                           | talk2.cfg  | `DIE_COMMENTS`     |
+
+**The modes**
+
+- _Sequential_: the players take turns.
+- _Synchronous_: everyone sets a shot, and when all are ready the shots go off at the same time. Everyone gets the same number of shots.
+- _Simultaneous_: everyone aims and fires at once on the same keyboard, six keys each (turret left and right, power up and down, fire, change weapon). A player cannot fire again until the previous projectile has exploded, but can aim meanwhile. The Tank Control Panel, the inventory and the mouse are not available, so guidance, triggers and fuel cannot be used, shields only with Auto Defense, and parachutes are always deployed. Batteries are used automatically when the energy falls below 91. The manual does not recommend more than three players.
+
+**The teams**
+
+- _Standard_: teams against each other.
+- _Corporate_: as Standard, but a team has one bank account.
+- _Vicious_: as Standard until one team is left, then everyone against everyone.
+
+**The play order**: Random draws the order for each turn. Losers-First lets the last in the ranking go first, Winners-First the opposite. Round-Robin is random, but the first shot of a round passes from one player to the next.
+
+**Talking Tanks**: a tank says a line from the attack file when it fires and from the die file when it dies. Each line of the files is one comment; a blank line means saying nothing.
+
+### Weapons
+
+| Setting       | Range                 | Default | Key                      | Meaning                                                                                              |
+| ------------- | --------------------- | ------- | ------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Arms Level    | 0–4                   | 4       | `ARMS`                   | The highest arms level of the items that can be bought (see the tables below).                       |
+| Bomb Icon     | Invisible, Small, Big | Big     | `BOMB_ICON`              | How a projectile looks in flight.                                                                    |
+| Tunneling     | on/off                | on      | `TUNNELLING`             | Projectiles burrow into dirt before they explode, and can come out of the other side of a thin pile. |
+| Scale         | Normal, Medium, Large | Normal  | `EXPLOSION_SCALE`        | The size of the explosions.                                                                          |
+| Trace Paths   | on/off                | off     | `TRACE`                  | Projectiles leave a trail in the colour of the tank.                                                 |
+| Extra Dirt    | on/off                | off     | `EXTRA_DIRT`             | Dirt Charges let out more dirt.                                                                      |
+| Useless Items | on/off                | off     | `USELESS_ITEMS`          | Show the items that the other settings make useless.                                                 |
+| Impact Damage | on/off                | on      | `DAMAGE_TANKS_ON_IMPACT` | Fall damage when landing, or while falling. Only in the file, not in the menu.                       |
+
+## Players and tanks
+
+- 2–10 tanks, each a human or one of the computer players (Moron, Shooter, Poolshark, Tosser, Chooser, Spoiler, Cyborg, Unknown).
+- Each player has a fixed colour and chooses a name and one of seven tank icons **(seen)**. An icon without wheels or treads is a fixed emplacement, which cannot buy or use fuel. One icon, the triple-turreted tank, is for computer players only in the shareware version: it fires three Missiles or Baby Missiles at a time.
+- The energy of a tank is 0–100. The maximum firing power is ten times the energy (1000 at full strength), and a tank with no energy is dead.
+- The angle is 0–90 from the horizon, to either side.
+- A tank falls when the dirt under it goes, and takes damage from the fall. A tank that lands on another damages it.
+
+### What a player can do on a turn
+
+- Turn the turret, set the power, change the weapon, fire.
+- Use a battery: +10 energy each, up to 100.
+- Set the parachutes passive or deployed, and their safety threshold (1–100, 5 by default): a parachute opens only if the fall would do more damage than the threshold.
+- Choose a shield and energise it. Energising replaces the shield that was on, which is lost.
+- Arm a contact trigger for the next shot.
+- Choose a guidance system for the next shot. It is reset to none after the shot.
+- Move the tank with fuel: one unit per pixel, more uphill. Too steep a hill cannot be climbed, and down too steep a hill the tank slips and falls.
+
+## Buying and selling
+
+- Between the rounds everyone with money gets to buy. Items are bought in bundles.
+- Items that the player cannot afford are not shown.
+- At most 99 of an item. A bundle that does not fit is sold partly, with a markup of about 20 %.
+- Everyone always has 99 Baby Missiles.
+- An item can be sold back from the inventory. The offer depends on the quantity, is usually a loss, and does not change before the next round.
+- With Free Market on, an item that is bought a lot gets more expensive and one that nobody buys gets cheaper. The prices move with a delay and bounce a little.
+- The buying screen shows the cash, the rounds left and, with Update, the interest earned so far.
+
+## Equipment
+
+The prices are per bundle. The arms level is the lowest Arms Level setting with which the item can be bought.
+
+### Weapons
+
+| Weapon          | Price   | Bundle | Radius     | Arms | What it does                                                                       |
+| --------------- | ------- | ------ | ---------- | ---- | ---------------------------------------------------------------------------------- |
+| Baby Missile    | $400    | 10     | 10         | 0    | The basic weapon; everyone has an unlimited supply                                 |
+| Missile         | $1,875  | 5      | 20         | 0    | A larger explosion                                                                 |
+| Baby Nuke       | $10,000 | 3      | 40         | 0    |                                                                                    |
+| Nuke            | $12,000 | 1      | 75         | 1    |                                                                                    |
+| Leap Frog       | $10,000 | 2      | 20, 25, 30 | 3    | Three warheads one after another; good against shields                             |
+| Funky Bomb      | $7,000  | 2      | 80         | 4    | A chain of explosions scattered around where it hits                               |
+| MIRV            | $10,000 | 3      | 20         | 2    | Splits into five Missile warheads at the apogee; a dud if it hits before that      |
+| Death's Head    | $20,000 | 1      | 35         | 4    | As MIRV, with nine larger warheads                                                 |
+| Napalm          | $10,000 | 10     | –          | 2    | Flows and burns; hotter in deep pools                                              |
+| Hot Napalm      | $20,000 | 2      | –          | 4    | Hotter Napalm                                                                      |
+| Tracer          | $10     | 20     | 0          | 0    | No damage; for finding the aim                                                     |
+| Smoke Tracer    | $500    | 10     | 0          | 1    | A Tracer that leaves a trail                                                       |
+| Baby Roller     | $5,000  | 10     | 10         | 2    | Rolls downhill to a valley or a tank, then explodes; rolls off a shield            |
+| Roller          | $6,000  | 5      | 20         | 2    |                                                                                    |
+| Heavy Roller    | $6,750  | 2      | 45         | 3    |                                                                                    |
+| Riot Charge     | $2,000  | 10     | 36         | 2    | Destroys a wedge of dirt from around the turret; for digging oneself out           |
+| Riot Blast      | $5,000  | 5      | 60         | 3    | A wider and thicker wedge                                                          |
+| Riot Bomb       | $5,000  | 5      | 30         | 3    | A projectile that destroys a sphere of dirt; no damage to tanks                    |
+| Heavy Riot Bomb | $4,750  | 2      | 45         | 3    |                                                                                    |
+| Baby Digger     | $3,000  | 10     | –          | 0    | Tunnels into the dirt; fizzles on a tank                                           |
+| Digger          | $2,500  | 5      | –          | 0    |                                                                                    |
+| Heavy Digger    | $6,750  | 2      | –          | 1    |                                                                                    |
+| Baby Sandhog    | $10,000 | 10     | –          | 0    | Tunnelling warheads with a charge; attacks from below, under a shield              |
+| Sandhog         | $16,750 | 5      | –          | 0    | More warheads                                                                      |
+| Heavy Sandhog   | $25,000 | 2      | –          | 1    |                                                                                    |
+| Dirt Clod       | $5,000  | 10     | 20         | 0    | Explodes into a sphere of dirt                                                     |
+| Dirt Ball       | $5,000  | 5      | 35         | 0    |                                                                                    |
+| Ton of Dirt     | $6,750  | 2      | 70         | 1    |                                                                                    |
+| Liquid Dirt     | $5,000  | 10     | –          | 2    | Oozes out, fills holes and smooths the terrain                                     |
+| Dirt Charge     | $5,000  | 5      | –          | 1    | Throws a wedge of dirt into the air                                                |
+| Earth Disrupter | $5,000  | 10     | –          | 0    | Makes suspended dirt fall                                                          |
+| Plasma Blast    | $9,000  | 5      | 10–75      | 3    | Energy around the tank; the size by the batteries used; the turret does not matter |
+| Laser           | $5,000  | 5      | –          | 2    | A straight beam through dirt and shields; uses batteries                           |
+
+The prices from Baby Missile to Digger were checked on the buying screen **(seen)**; the rest of the weapons are on its second page, which was not looked at.
+
+### Accessories
+
+| Item               | Price   | Bundle | Arms | What it does                                                                                       |
+| ------------------ | ------- | ------ | ---- | -------------------------------------------------------------------------------------------------- |
+| Heat Guidance      | $10,000 | 6      | 2    | Near an enemy tank the projectile flies straight to it                                             |
+| Ballistic Guidance | $10,000 | 2      | 2    | Sets the power to hit the chosen target at the current angle; corrects for wind, not for viscosity |
+| Horz Guidance      | $15,000 | 5      | 1    | Flies horizontally to the target once level with it                                                |
+| Vert Guidance      | $20,000 | 5      | 1    | Drops straight down once above the target                                                          |
+| Lazy Boy           | $20,000 | 2      | 3    | Flies to the chosen point                                                                          |
+| Parachute          | $10,000 | 8      | 2    | Prevents the damage of a fall                                                                      |
+| Battery            | $5,000  | 10     | 2    | +10 energy, or power for the energy weapons                                                        |
+| Mag Deflector      | $10,000 | 2      | 2    | Pushes projectiles above the tank upwards; weak                                                    |
+| Shield             | $20,000 | 3      | 3    | Absorbs the damage of explosions; a direct hit does not explode                                    |
+| Force Shield       | $25,000 | 3      | 3    | Deflects projectiles; lasts longer                                                                 |
+| Heavy Shield       | $30,000 | 2      | 4    | Lasts a lot, and does not fail                                                                     |
+| Super Mag          | $40,000 | 2      | 4    | A Heavy Shield that also deflects and is immune to lasers                                          |
+| Auto Defense       | $1,500  | 1      | 3    | Lets the player set up the defences before each round, for the rest of the game                    |
+| Fuel Tank          | $10,000 | 10     | 3    | 10 units of fuel each                                                                              |
+| Contact Trigger    | $1,000  | 25     | 3    | The projectile explodes on contact instead of tunnelling; one covers all warheads of a shot        |
+
+All of these prices were checked on the buying screen **(seen)**, and they match the manual except for one: Auto Defense cost $12,161, not $1,500, with ten rounds left and an interest rate of 5 %. The manual says its price is based on the number of rounds left.
+
+Guidance does not work with MIRV, Death's Head, Riot Charge, Riot Blast or Plasma Blast. A shield never protects from one's own shot.
+
+## To be measured
+
+The manual does not give these, and the simulation needs them. They are measured by running the game, and the results are added to this file.
+
+**Before phase 1**
+
+- The relation of power to the speed of a projectile, and the units of gravity and wind.
+- The damage of an explosion by distance, for each weapon of phase 1.
+- Fall damage by height.
+- The points of the Standard scoring: for damage, for a kill, for surviving, and the penalty for hitting oneself. This also decides the default of Cash at Start in PLAN.md.
+- How interest is paid (on what amount, at which moment, how it is rounded).
+- The selling price of an item by quantity.
+- The shape of the terrain at different values of Bumpiness and Slope, and how fast dirt falls.
+- How exactly Rollers, the MIRV and the dirt weapons behave.
+
+**Before phase 4**
+
+- The Basic and Greedy scoring, and how the inventory is depreciated in Greedy.
+- The price of Auto Defense by the rounds left and the interest rate.
+- How long each shield lasts, and how the shields deflect.
+- The fuel a slope takes, and the steepest slope that can be climbed.
+- The damage of Napalm by the depth of the pool, and of the energy weapons by the batteries used.
+
+**Before phase 5**
+
+- How fast and how far the prices of the Free Market move.
+- How the points are shared in each of the team modes.
+- What each sky does when the environment is hostile.

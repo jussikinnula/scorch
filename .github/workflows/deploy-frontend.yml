@@ -1,0 +1,89 @@
+name: Deploy frontend
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+  # By hand from the Actions tab, e.g. after a variable of the build was changed
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set BASE_HREF for PR preview
+        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        run: echo "BASE_HREF=/pr-${{ github.event.number }}/" >> $GITHUB_ENV
+
+      - run: npm ci
+
+      # The address of the backend the frontend connects to, e.g. https://api.scorch.mobile
+      - run: npm run build
+        if: github.event.action != 'closed'
+        env:
+          API_URL: ${{ vars.API_URL }}
+          # The previews of pull requests show which commit they were built of
+          COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
+
+      - run: git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      - run: git config --global user.name "github-actions[bot]"
+
+      - name: Deploy production (main)
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        run: |
+          echo "scorch.mobile" > dist/CNAME
+
+          npx gh-pages -d dist \
+            --message "Production deploy: ${GITHUB_SHA}" \
+            --repo=https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+
+      - name: Deploy PR preview
+        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        run: |
+          npx gh-pages -d dist \
+            --dest=pr-${{ github.event.number }} \
+            --message "PR preview deploy: PR #${{ github.event.number }}" \
+            --repo=https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+
+      - name: Comment PR with preview URL
+        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          message: |
+            🚀 **PR Preview Updated**
+
+            👉 https://scorch.mobile/pr-${{ github.event.number }}/
+
+      - name: Remove PR preview
+        if: github.event_name == 'pull_request' && github.event.action == 'closed'
+        run: |
+          git clone --depth=1 \
+            https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
+            --branch gh-pages gh-pages-branch
+
+          cd gh-pages-branch
+
+          if [ -d "pr-${{ github.event.number }}" ]; then
+            echo "Removing preview pr-${{ github.event.number }}"
+            git rm -r "pr-${{ github.event.number }}"
+            git commit -m "Remove preview for PR #${{ github.event.number }}"
+            git push
+          else
+            echo "Preview directory not found, nothing to delete."
+          fi
