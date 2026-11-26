@@ -7,8 +7,10 @@ export type Route =
   | { view: "home" }
   /** The big screen of a hotseat game: the playing field and the QR code. */
   | { view: "screen"; room: string }
-  /** A controller of a hotseat game, opened by scanning the QR code. The token is short-lived. */
+  /** Joining a hotseat game as a controller, opened by scanning the QR code. The token is short-lived. */
   | { view: "join"; token: string }
+  /** A controller of a hotseat game, after joining. */
+  | { view: "controller"; room: string }
   /** An online player: the playing field and the controls on the same device. */
   | { view: "play"; room: string };
 
@@ -18,8 +20,7 @@ const ID = /^[A-Za-z0-9_-]{1,64}$/;
 export function parseRoute(hash: string): Route {
   const [view, id, ...rest] = hash.replace(/^#\/?/, "").split("/");
   if (rest.length === 0 && id !== undefined && ID.test(id)) {
-    if (view === "screen") return { view, room: id };
-    if (view === "play") return { view, room: id };
+    if (view === "screen" || view === "controller" || view === "play") return { view, room: id };
     if (view === "join") return { view, token: id };
   }
   return { view: "home" };
@@ -29,4 +30,20 @@ export function parseRoute(hash: string): Route {
 export function toHash(route: Route): string {
   if (route.view === "home") return "#/";
   return `#/${route.view}/${route.view === "join" ? route.token : route.room}`;
+}
+
+/** The whole address of a route of this site, e.g. for a QR code. */
+export function toUrl(route: Route): string {
+  const url = new URL(document.baseURI);
+  url.search = "";
+  url.hash = toHash(route);
+  return url.toString();
+}
+
+/** Goes to a route. With replace, the new address takes the place of the current one in the history of the browser. */
+export function navigate(route: Route, replace = false) {
+  const url = new URL(window.location.href);
+  url.hash = toHash(route);
+  if (replace) window.location.replace(url);
+  else window.location.assign(url);
 }

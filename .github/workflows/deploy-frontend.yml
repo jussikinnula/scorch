@@ -37,6 +37,8 @@ jobs:
         if: github.event.action != 'closed'
         env:
           API_URL: ${{ vars.API_URL }}
+          # The test phones are always there in the previews of pull requests, in production by the variable
+          PLAYER_TESTING_MODE: ${{ github.event_name == 'pull_request' && 'true' || vars.PLAYER_TESTING_MODE }}
           # The previews of pull requests show which commit they were built of
           COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
 

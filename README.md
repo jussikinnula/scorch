@@ -2,7 +2,7 @@
 
 An artillery game for people only, after the original Scorched Earth: played from a shared big screen with phones as controllers ("hotseat"), or over the network ("online").
 
-There is no game yet. This is the skeleton: a frontend, a backend and the connection between them. The plan is in [docs/PLAN.md](docs/PLAN.md), and what the original game can do is in [docs/ORIGINAL.md](docs/ORIGINAL.md).
+There is no game yet. What works: a screen creates a hotseat room, phones join it by scanning a QR code, and when the game is started the screen shows a terrain with a tank for each player, whose turret and power the player sets on the phone. A player can also write a short text, which is shown in a speech bubble above the tank. The plan is in [docs/PLAN.md](docs/PLAN.md), the messages between the frontend and the backend are in [docs/PROTOCOL.md](docs/PROTOCOL.md), and what the original game can do is in [docs/ORIGINAL.md](docs/ORIGINAL.md).
 
 ## Usage
 
@@ -27,20 +27,30 @@ There is no game yet. This is the skeleton: a frontend, a backend and the connec
 | `test`   | Helpers of the tests, e.g. `startBackend`, which runs the real backend for a test                 |
 | `docs`   | The plan and the notes about the original game                                                    |
 
-The frontend is a static site in GitHub Pages, which cannot serve the same page for every path. That is why the view is in the hash of the address (`client/routes.ts`): `#/screen/<room>`, `#/join/<token>` and `#/play/<room>`.
+The frontend is a static site in GitHub Pages, which cannot serve the same page for every path. That is why the view is in the hash of the address (`client/routes.ts`): `#/screen/<room>`, `#/join/<token>`, `#/controller/<room>` and `#/play/<room>`.
+
+## Trying it with phones
+
+A hotseat game needs a screen and phones that reach the same frontend and backend.
+
+- With `npm run dev`, open the frontend on the computer by its address in the local network, e.g. `http://192.168.1.20:4100`, not `localhost`: the QR code has the address the page was opened with. In development the frontend uses the backend on the same machine (port 4101), so the phones find it too.
+- In the player testing mode (`PLAYER_TESTING_MODE`, on by default in development) there is a button "Open a test phone" under the QR code. It opens the address of the QR code in a bare window the size of a phone. Each such window is a player of its own, so a game with many players can be tried in one browser, together with real phones.
+- Phones allow some features (keeping the screen awake, vibration) only on HTTPS pages. For those, use a tunnel such as ngrok, or a preview of a pull request.
+- The previews of pull requests use the production backend. A change in the protocol works in a preview only after the backend has been deployed from `main`.
 
 ## Frontend and backend
 
 The frontend and the backend are deployed separately: the frontend is a static site in GitHub Pages ([scorch.mobile](https://scorch.mobile)) and the backend is a web service in [Render.com](https://render.com). The frontend keeps a connection to the WebSocket API open, and the light in the top right corner tells whether there is one.
 
-| Variable          | Used by  | Meaning                                                                                                                                                            |
-| ----------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `API_URL`         | frontend | The address of the backend, e.g. `https://scorch-api.onrender.com`. It is given when the frontend is built. The default is `http://localhost:4101` in development. |
-| `BASE_HREF`       | frontend | The path the site is served at, `/` by default. The previews of pull requests set it.                                                                              |
-| `COMMIT_SHA`      | frontend | The hash of the commit of the build, shown beside the light of the connection. It is given in the previews of pull requests.                                       |
-| `PORT`            | backend  | The port of the server, `4101` by default. Render.com sets it.                                                                                                     |
-| `ALLOWED_ORIGINS` | backend  | The addresses that are allowed to use the API, separated with commas. Everything is allowed if it is not set.                                                      |
-| `SERVE_FRONTEND`  | backend  | `true` makes the backend also serve the built frontend from `dist`.                                                                                                |
+| Variable              | Used by  | Meaning                                                                                                                                                                                                          |
+| --------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `API_URL`             | frontend | The address of the backend, e.g. `https://api.scorch.mobile`. It is given when the frontend is built. Without it the frontend uses, in development, port 4101 of the machine the page came from.                 |
+| `PLAYER_TESTING_MODE` | frontend | `true` puts the button "Open a test phone" under the QR code of a hotseat game, `false` leaves it out. It is given when the frontend is built. Without it the button is there in development and not in a build. |
+| `BASE_HREF`           | frontend | The path the site is served at, `/` by default. The previews of pull requests set it.                                                                                                                            |
+| `COMMIT_SHA`          | frontend | The hash of the commit of the build, shown beside the light of the connection. It is given in the previews of pull requests.                                                                                     |
+| `PORT`                | backend  | The port of the server, `4101` by default. Render.com sets it.                                                                                                                                                   |
+| `ALLOWED_ORIGINS`     | backend  | The addresses that are allowed to use the API, separated with commas. Everything is allowed if it is not set.                                                                                                    |
+| `SERVE_FRONTEND`      | backend  | `true` makes the backend also serve the built frontend from `dist`.                                                                                                                                              |
 
 ### Deploys
 
@@ -55,6 +65,7 @@ To set them up:
    - the secret `RENDER_API_KEY`: an API key from the account settings of Render.com
    - the variable `RENDER_SERVICE_ID`: the id of the service (`srv-...`)
    - the variable `API_URL`: the address of the service, e.g. `https://scorch-api.onrender.com`
+   - the variable `PLAYER_TESTING_MODE`: `true` to have the test phones in production
 3. In the settings of the GitHub repository (Pages), choose the branch `gh-pages` as the source, after the first deploy has created it.
 4. Run the Deploy frontend workflow from the Actions tab (or push to `main`).
 
