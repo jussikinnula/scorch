@@ -6,8 +6,10 @@ import AimControl from "../components/AimControl";
 import FireControl from "../components/FireControl";
 import PlayerList from "../components/PlayerList";
 import SayControl from "../components/SayControl";
+import Standings, { ranked } from "../components/Standings";
 import { Api, useApiMessages } from "../hooks/useApiConnection";
 import { useBubbles } from "../hooks/useBubbles";
+import { useCountdown } from "../hooks/useCountdown";
 import { useThrottled } from "../hooks/useThrottled";
 import { navigate } from "../routes";
 import { loadPlayerKey, savePlayerKey } from "../session";
@@ -36,6 +38,14 @@ export default function Controller({ api, room }: Props) {
   const [energy, setEnergy] = useState(MAX_ENERGY);
   /** The result of the round that just ended, until the next round starts. */
   const [result, setResult] = useState<{ round: number; winner: number | null } | null>(null);
+  // The turns of the classic mode: whose it is, and how long that player still has
+  const turn = state?.turn ?? null;
+  const myTurn = turn !== null && turn.player === self && turn.time > 0;
+  const turnTime = useCountdown(turn ? turn.time : null, state);
+  useEffect(() => {
+    // The phone tells that the turn has come, also to one who is looking at the big screen
+    if (myTurn) window.navigator.vibrate?.(200);
+  }, [myTurn]);
   // The reload of the tank that is going on, as the server told it
   const [reload, setReload] = useState({ until: 0, time: 0 });
   // What the player last said, as the server showed it, for as long as the bubble is on the screen
@@ -150,7 +160,7 @@ export default function Controller({ api, room }: Props) {
             : result.winner === me.id
               ? "You won the round!"
               : `${state.players.find((player) => player.id === result.winner)?.name ?? "?"} won the round.`}{" "}
-          The next round starts in a moment.
+          {state.round < state.settings.rounds ? "The next round starts in a moment." : "That was the last round."}
         </p>
       )}
       {state.phase === "playing" && aim && energy <= 0 && (
@@ -164,6 +174,15 @@ export default function Controller({ api, room }: Props) {
       )}
       {state.phase === "playing" && aim && energy > 0 && (
         <>
+          {turn && (
+            <p className={`controller__turn${myTurn ? " controller__turn--mine" : ""}`} role="status" aria-label="Turn">
+              {myTurn
+                ? `Your turn${turnTime ? ` · ${turnTime}` : ""}`
+                : turn.player === me.id
+                  ? "Your shot is on its way"
+                  : `${state.players.find((player) => player.id === turn.player)?.name ?? "?"} is aiming`}
+            </p>
+          )}
           <p className="controller__energy" aria-label="Energy">
             <span style={{ width: `${energy}%` }} />
             {energy}
@@ -178,6 +197,7 @@ export default function Controller({ api, room }: Props) {
           <FireControl
             reloadedAt={reload.until}
             reloadTime={reload.time}
+            waiting={turn && !myTurn ? "Wait" : undefined}
             onFire={() => {
               // The aim that was just set goes before the shot, not after it
               if (Object.keys(unsent.current).length > 0 && api.send({ type: "aim", ...unsent.current }))
@@ -194,6 +214,16 @@ export default function Controller({ api, room }: Props) {
         </>
       )}
       {state.phase === "lobby" && <PlayerList players={state.players} self={me.id} />}
+      {state.phase === "finished" && (
+        <>
+          <p className="controller__status" role="status">
+            {ranked(state.players)[0].id === me.id && me.wins > (ranked(state.players)[1]?.wins ?? -1)
+              ? "You won the game!"
+              : "The game is over."}
+          </p>
+          <Standings players={state.players} self={me.id} />
+        </>
+      )}
       <button className="button controller__leave" onClick={leave}>
         Leave the game
       </button>

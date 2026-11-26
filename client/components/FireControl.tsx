@@ -5,11 +5,13 @@ interface Props {
   reloadedAt: number;
   /** How long the reload that is going on takes in all, in milliseconds. */
   reloadTime: number;
+  /** Why the tank cannot fire although it is not reloading, e.g. that it is not the turn of the player. */
+  waiting?: string;
   onFire: () => void;
 }
 
 /** The fire button. While the tank reloads the button cannot be pressed, and shows how the reload proceeds. */
-export default function FireControl({ reloadedAt, reloadTime, onFire }: Props) {
+export default function FireControl({ reloadedAt, reloadTime, waiting, onFire }: Props) {
   const [reloading, setReloading] = useState(() => reloadedAt > performance.now());
 
   useEffect(() => {
@@ -21,12 +23,12 @@ export default function FireControl({ reloadedAt, reloadTime, onFire }: Props) {
   }, [reloadedAt]);
 
   return (
-    <button className="button fire" onClick={onFire} disabled={reloading}>
+    <button className="button fire" onClick={onFire} disabled={reloading || waiting !== undefined}>
       {reloading && (
         // A new bar for each reload, so that its animation starts from the beginning
         <span key={reloadedAt} className="fire__reload" style={{ animationDuration: `${reloadTime}ms` }} />
       )}
-      <span className="fire__label">{reloading ? "Reloading…" : "Fire"}</span>
+      <span className="fire__label">{reloading ? "Reloading…" : (waiting ?? "Fire")}</span>
     </button>
   );
 }

@@ -2,7 +2,7 @@
 
 How the clients and the server talk to each other. The types of the messages and the limits are in [`shared/protocol.ts`](../shared/protocol.ts), which both sides import; this document tells how they are used and why.
 
-Status: everything up to "Later" is implemented (protocol version 4): the rooms (creating one, joining it with the QR code, the lobby, returning after a lost connection), the playing field, turning the turret, firing, damage, rounds and the speech bubbles.
+Status: everything up to "Later" is implemented (protocol version 6): the rooms (creating one, joining it with the QR code, the lobby, returning after a lost connection), the playing field, turning the turret, firing in the classic and the live mode, damage, rounds, the end of a game and the speech bubbles.
 
 The scope is the first playable slice of [PLAN.md](PLAN.md): a hotseat room, joining with the QR code, tanks on the screen, turning the turret and the speech bubbles. Firing, the shop and online rooms are sketched at the end, so that this design leaves room for them.
 
@@ -104,12 +104,13 @@ If a second connection takes over a screen or a player with the right key, the f
 
 The state of the room (`RoomState`) is sent to everyone in the room whenever it changes: someone joins, leaves, loses or regains the connection, the settings change, or the phase changes.
 
-| From       | Message                 | When         | What happens                                                                                                   |
-| ---------- | ----------------------- | ------------ | -------------------------------------------------------------------------------------------------------------- |
-| Screen     | `settings { settings }` | In the lobby | Changes the maximum number of players (2–10, 8 by default). It cannot go below the number already in the room. |
-| Screen     | `kick { id }`           | Any time     | Removes the player; its key stops working. The controller of the player gets the error `no-session`.           |
-| Screen     | `start`                 | In the lobby | Starts the game, if there are at least two players.                                                            |
-| Controller | `leave`                 | Any time     | The player leaves for good. There is no answer.                                                                |
+| From       | Message                 | When          | What happens                                                                                                   |
+| ---------- | ----------------------- | ------------- | -------------------------------------------------------------------------------------------------------------- |
+| Screen     | `lobby`                 | When finished | Back to the lobby for a new game.                                                                              |
+| Screen     | `settings { settings }` | In the lobby  | Changes the maximum number of players (2–10, 8 by default). It cannot go below the number already in the room. |
+| Screen     | `kick { id }`           | Any time      | Removes the player; its key stops working. The controller of the player gets the error `no-session`.           |
+| Screen     | `start`                 | In the lobby  | Starts the game, if there are at least two players.                                                            |
+| Controller | `leave`                 | Any time      | The player leaves for good. There is no answer.                                                                |
 
 The game also starts by itself when the room becomes full.
 
@@ -167,12 +168,27 @@ controller                          server                          screen
 ```
 
 - `fire` has nothing in it: the tank fires with the aim the server has. The controller sends an aim it has not sent yet just before the `fire`.
-- **Reloading.** After a shot the tank reloads (`RELOAD_TIME`, three seconds for the only weapon so far). The server tells the player how long with `reload { time }`, and refuses a `fire` during it with the error `reloading`. Turning the turret works meanwhile. There are no turns yet: everyone fires when their tank is ready.
+- **Reloading.** After a shot the tank reloads (`RELOAD_TIME`, three seconds for the only weapon so far). The server tells the player how long with `reload { time }`, and refuses a `fire` during it with the error `reloading`. Turning the turret works meanwhile. This is the live mode; the classic mode has turns instead (see below).
 - **The flight is calculated on the server** (`shared/sim/shots.ts`), 60 steps a second. Every 50 ms (`SHOTS_INTERVAL`) the screen is sent the places of all the projectiles in the air, as whole pixels of the field. A projectile can be outside the field, above it or past its sides. When the last one is gone, an empty list is sent once, and then nothing until the next shot.
 - **The screen draws a projectile between two places it was told**, on the way from the earlier to the later one, so the flight is smooth although the places come twenty times a second. A projectile that is not in a list any more is gone.
 - **An explosion** is told once, when it happens: where and how large.
 - **A change to the terrain** is told as what was done to it, not as a new terrain: `carve` (the dirt inside a circle is destroyed) and `settle` (the dirt that has nothing under it falls). The screen makes the same changes to its own copy with the code of `shared/sim/terrain.ts`, which uses only whole numbers and gives the same result everywhere. With the changes come the tanks as they are after them, because a tank comes down with the ground under it.
 - A screen that returns gets the whole `field` as it is now, craters and all, and the projectiles that are in the air in the next `shots`. A controller that returns gets a `reload` with the time that is left.
+
+### Turns: classic and live
+
+The screen chooses in the lobby how the turns go (`settings.turns`). A new room has the classic mode.
+
+- **Live**: everyone fires whenever their tank has reloaded, as described above. The state of the room has no `turn`.
+- **Classic**: one player at a time fires, as in the Sequential mode of the original. The state of the room tells whose turn it is and how long the player still has: `turn: { player, time }`. The state is sent to everyone whenever the turn changes.
+  - The order of the turns is drawn at the start of each round, and stays for the round.
+  - Only the player whose turn it is can fire, and only once: anything else is refused with the error `not-your-turn`. Everyone can turn their turret at any time.
+  - A player has 45 seconds (`TURN_TIME`). If the player has not fired by then, the turn is skipped. That is also what happens to a player whose phone is not connected.
+  - When the shot is fired the clock stops (`time` is 0), and the turn passes when the shot is over: it has exploded or flown away.
+  - Players whose tanks have been destroyed are skipped. If the player whose turn it is leaves or is removed, the turn passes at once.
+  - There is no reloading, and while the result of a round is shown it is nobody's turn.
+
+A device that returns gets the turn with the state of the room, with the time that is left.
 
 ### Damage and rounds
 
@@ -181,9 +197,12 @@ controller                          server                          screen
 - **The power is at most ten times the energy**, as in the original. The server lowers the power of a tank that is damaged, and an `aim` with more power is cut to what the energy allows.
 - A tank with no energy is **destroyed**: it stays on the field as a wreck, a projectile flies through it, and its `aim` and `fire` are refused with the error `destroyed`. Its player can still use the speech bubbles.
 - **A round is over** when at most one tank is left and nothing is in the air. Everyone in the room is told `roundOver { round, winner }`, where the winner is the id of the player whose tank is left, or null if none is. Firing is refused with `wrong-phase` while the result is shown.
+- The winner of a round gets a **win**. The wins of each player are in the state of the room (`players[].wins`), which is sent again when a round ends.
 - Five seconds later (`ROUND_PAUSE`) **the next round starts**: a new terrain, every tank whole again. The screen gets a new `field`, the players their `aim`, `reload` and `energy`, and everyone the state of the room, whose `round` is the number of the round from 1.
+- **A game has a number of rounds**, which the screen sets in the lobby with the other settings (`settings.rounds`, 1–1000, 10 by default, as in the original). After the last round there is no new round: the phase of the room becomes `finished`, and the final standings are shown. Nothing can be done on the field then.
+- From a finished game the screen goes back to the lobby with `lobby`: the wins are cleared, the QR code is shown and new players can join, and `start` starts a new game.
 
-There are no points or money yet, and no last round: the rounds go on until the screen leaves.
+There are no points or money yet: the standings are by the rounds won.
 
 ### Speech bubbles
 
@@ -204,21 +223,22 @@ controller                          server                          screen
 
 When the server refuses something, it answers `error { code, re }`, where `re` is the type of the message that was refused. An error that is not an answer to a message (`replaced`, a removed player, a removed room) has no `re`.
 
-| Code            | Meaning                                                                                  |
-| --------------- | ---------------------------------------------------------------------------------------- |
-| `wrong-version` | The client has another version of the protocol than the server.                          |
-| `bad-message`   | Not a message of the API: not JSON, an unknown type, a missing or wrong field.           |
-| `bad-token`     | The join token is not valid (any more).                                                  |
-| `no-room`       | There is no such room (any more).                                                        |
-| `no-session`    | The key does not open the room.                                                          |
-| `room-full`     | The room has its maximum number of players.                                              |
-| `bad-name`      | The name was refused (the word filter, later).                                           |
-| `not-allowed`   | The client is not in a room, or its role may not do this.                                |
-| `wrong-phase`   | The room is not in a phase where this can be done, e.g. joining a game that has started. |
-| `reloading`     | The tank is still reloading after its last shot.                                         |
-| `destroyed`     | The tank of the player has been destroyed.                                               |
-| `rate-limited`  | Too many messages.                                                                       |
-| `replaced`      | Another connection took over this screen or player. The connection is closed.            |
+| Code            | Meaning                                                                                              |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| `wrong-version` | The client has another version of the protocol than the server.                                      |
+| `bad-message`   | Not a message of the API: not JSON, an unknown type, a missing or wrong field.                       |
+| `bad-token`     | The join token is not valid (any more).                                                              |
+| `no-room`       | There is no such room (any more).                                                                    |
+| `no-session`    | The key does not open the room.                                                                      |
+| `room-full`     | The room has its maximum number of players.                                                          |
+| `bad-name`      | The name was refused (the word filter, later).                                                       |
+| `not-allowed`   | The client is not in a room, or its role may not do this.                                            |
+| `wrong-phase`   | The room is not in a phase where this can be done, e.g. joining a game that has started.             |
+| `reloading`     | The tank is still reloading after its last shot.                                                     |
+| `destroyed`     | The tank of the player has been destroyed.                                                           |
+| `not-your-turn` | In the classic mode: it is not the turn of the player, or the player has already fired on this turn. |
+| `rate-limited`  | Too many messages.                                                                                   |
+| `replaced`      | Another connection took over this screen or player. The connection is closed.                        |
 
 A connection that sends more than 40 messages within a second gets `rate-limited` once, and the extra messages are dropped.
 
@@ -226,7 +246,7 @@ A connection that sends more than 40 messages within a second gets `rate-limited
 
 Sketched only, to check that the design above has room for them. They are designed properly when their phase comes.
 
-- **The round** (phase 1): `weapon { id }` from a player. From the server a `turn` (whose turn, how long) in the classic mode. Each player gets its own energy, money and inventory in a message of its own, which the controller needs but the others must not see.
+- **The round** (phase 1): `weapon { id }` from a player. Each player gets its own energy, money and inventory in a message of its own, which the controller needs but the others must not see.
 - **Wind** (phase 1): a number with a sign, in the message that starts a round and again whenever it changes (Changing Wind, the live mode). It goes to everyone, the controllers too, because the player aims by it.
 - **The shop** (phase 1): `buy { item }`, `sell { item, quantity }`, `ready`. The inventory and the prices go only to the player.
 - **The live mode** (phase 2): the same `aim` and `fire`; the server answers a `fire` during a reload with an error and tells each player when its reload ends.

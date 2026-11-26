@@ -248,6 +248,8 @@ SCORCH uses the simplest rule that fits all of these (`shared/sim/shots.ts`): an
 
 With the Standard scoring and no cash at start, the rankings after a round that a tank ended by destroying itself were: the survivor one win and $5,000, the one that destroyed itself no wins and $-1,500. So surviving a round is worth money, destroying oneself costs, and the money of a player can be negative.
 
+A second try, with three and four players, got nothing: the keys of the script closed the rankings before the screenshot. The rankings stay on the screen until a key is pressed, so a measurement must stop pressing keys when the status bar cannot be read any more.
+
 ## To be measured
 
 The manual does not give these, and the simulation needs them. They are measured by running the game, and the results are added to this file.

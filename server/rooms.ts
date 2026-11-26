@@ -3,6 +3,7 @@ import { randomBytes, randomInt } from "crypto";
 import {
   ClientMessage,
   DEFAULT_MAX_PLAYERS,
+  DEFAULT_ROUNDS,
   ErrorCode,
   FieldState,
   JOIN_TOKEN_PERIOD,
@@ -17,7 +18,8 @@ import {
   RoomSettings,
   RoomState,
   ServerMessage,
-  SHOTS_INTERVAL
+  SHOTS_INTERVAL,
+  TURN_TIME
 } from "../shared/protocol";
 import { launch, Shot, stepShots, STEPS_PER_SECOND } from "../shared/sim/shots";
 import { createField, removeTank } from "../shared/sim/field";
@@ -52,6 +54,8 @@ interface Player<Member> {
   saidAt: number;
   /** When the tank of the player can fire again. */
   reloadedAt: number;
+  /** How many rounds of the game the player has won. */
+  wins: number;
 }
 
 interface Room<Member> {
@@ -74,6 +78,15 @@ interface Room<Member> {
   round: number;
   /** Starts the next round, when a round has ended and its result is being shown. */
   nextRoundTimer: ReturnType<typeof setTimeout> | null;
+  /** In the classic mode: the ids of the players in the order of their turns in this round. */
+  order: number[];
+  /** In the classic mode: the id of the player whose turn it is, null when it is nobody's. */
+  turn: number | null;
+  /** Whether the player whose turn it is has fired. The turn passes when the shot is over. */
+  turnFired: boolean;
+  /** When the turn is skipped if the player has not fired by then, and the timer that skips it. */
+  turnEndsAt: number;
+  turnTimer: ReturnType<typeof setTimeout> | null;
   token: string;
   /** The token before the newest one, which still lets a controller join. */
   previousToken: string | null;
@@ -162,6 +175,9 @@ class Rooms<Member> {
       case "start":
         this.start(member);
         return true;
+      case "lobby":
+        this.backToLobby(member);
+        return true;
       case "aim":
         this.aim(member, message.angle, message.power);
         return true;
@@ -209,7 +225,7 @@ class Rooms<Member> {
       hostKey: randomKey(),
       mode,
       phase: "lobby",
-      settings: { maxPlayers: DEFAULT_MAX_PLAYERS },
+      settings: { maxPlayers: DEFAULT_MAX_PLAYERS, rounds: DEFAULT_ROUNDS, turns: "classic" },
       players: [],
       screen: member,
       field: null,
@@ -217,6 +233,11 @@ class Rooms<Member> {
       nextShot: 1,
       round: 0,
       nextRoundTimer: null,
+      order: [],
+      turn: null,
+      turnFired: false,
+      turnEndsAt: 0,
+      turnTimer: null,
       token: this.newToken(),
       previousToken: null,
       tokenChangedAt: Date.now(),
@@ -263,7 +284,8 @@ class Rooms<Member> {
       key: randomKey(),
       member,
       saidAt: -Infinity,
-      reloadedAt: 0
+      reloadedAt: 0,
+      wins: 0
     };
     room.players.push(player);
     room.players.sort((a, b) => a.id - b.id);
@@ -318,7 +340,7 @@ class Rooms<Member> {
     if (room.phase !== "lobby") return this.refuse(member, "wrong-phase", "settings");
     if (settings.maxPlayers < room.players.length) return this.refuse(member, "not-allowed", "settings");
 
-    room.settings = { maxPlayers: settings.maxPlayers };
+    room.settings = { maxPlayers: settings.maxPlayers, rounds: settings.rounds, turns: settings.turns };
     this.startIfFull(room);
     this.announce(room);
     this.sendField(room);
@@ -349,11 +371,27 @@ class Rooms<Member> {
     this.sendField(room);
   }
 
+  /** After a game has finished: back to the lobby, where a new game can be started and new players can join. */
+  private backToLobby(member: Member) {
+    const room = this.roomOfScreen(member, "lobby");
+    if (!room) return;
+    if (room.phase !== "finished") return this.refuse(member, "wrong-phase", "lobby");
+
+    room.phase = "lobby";
+    room.field = null;
+    room.round = 0;
+    this.setTurn(room, null);
+    for (const player of room.players) player.wins = 0;
+    this.startIfFull(room);
+    this.announce(room);
+    this.sendField(room);
+  }
+
   private aim(member: Member, angle: number | undefined, power: number | undefined) {
     const session = this.sessions.get(member);
     if (!session?.player) return this.refuse(member, "not-allowed", "aim");
     const { room, player } = session;
-    const tank = room.field?.tanks.find((candidate) => candidate.id === player.id);
+    const tank = room.phase === "playing" && room.field?.tanks.find((candidate) => candidate.id === player.id);
     if (!tank) return this.refuse(member, "wrong-phase", "aim");
     if (tank.energy <= 0) return this.refuse(member, "destroyed", "aim");
 
@@ -368,16 +406,26 @@ class Rooms<Member> {
     const session = this.sessions.get(member);
     if (!session?.player) return this.refuse(member, "not-allowed", "fire");
     const { room, player } = session;
-    const tank = room.field?.tanks.find((candidate) => candidate.id === player.id);
+    const tank = room.phase === "playing" && room.field?.tanks.find((candidate) => candidate.id === player.id);
     if (!tank) return this.refuse(member, "wrong-phase", "fire");
     if (tank.energy <= 0) return this.refuse(member, "destroyed", "fire");
     // Nobody fires while the result of a round is shown
     if (room.nextRoundTimer) return this.refuse(member, "wrong-phase", "fire");
-    if (Date.now() < player.reloadedAt) return this.refuse(member, "reloading", "fire");
-
-    player.reloadedAt = Date.now() + RELOAD_TIME;
-    room.shots.push(launch(tank, room.nextShot++));
-    this.send(member, { type: "reload", time: RELOAD_TIME });
+    if (room.settings.turns === "classic") {
+      // One shot on one's own turn. The turn passes when the shot is over, not by the clock any more.
+      if (room.turn !== player.id || room.turnFired) return this.refuse(member, "not-your-turn", "fire");
+      room.turnFired = true;
+      room.turnEndsAt = Date.now();
+      if (room.turnTimer) clearTimeout(room.turnTimer);
+      room.turnTimer = null;
+      room.shots.push(launch(tank, room.nextShot++));
+      this.announce(room);
+    } else {
+      if (Date.now() < player.reloadedAt) return this.refuse(member, "reloading", "fire");
+      player.reloadedAt = Date.now() + RELOAD_TIME;
+      room.shots.push(launch(tank, room.nextShot++));
+      this.send(member, { type: "reload", time: RELOAD_TIME });
+    }
     this.startTicker();
   }
 
@@ -390,15 +438,45 @@ class Rooms<Member> {
     const left = room.field.tanks.filter((tank) => tank.energy > 0);
     if (left.length > 1) return;
 
-    const message: ServerMessage = { type: "roundOver", round: room.round, winner: left[0]?.id ?? null };
+    this.setTurn(room, null);
+    const winner = room.players.find((player) => player.id === left[0]?.id);
+    if (winner) winner.wins += 1;
+    const message: ServerMessage = { type: "roundOver", round: room.round, winner: winner?.id ?? null };
     if (room.screen) this.send(room.screen, message);
     for (const player of room.players) if (player.member) this.send(player.member, message);
+    // The wins of the players are in the state of the room
+    this.announce(room);
+
     room.nextRoundTimer = setTimeout(() => {
       room.nextRoundTimer = null;
-      this.begin(room);
+      // After the last round the game is finished: the final results stay on the screen
+      if (room.round >= room.settings.rounds) room.phase = "finished";
+      else this.begin(room);
       this.announce(room);
       this.sendField(room);
     }, ROUND_PAUSE);
+  }
+
+  /** Gives the turn to a player, who has a limited time to fire. Null takes the turn from everyone. */
+  private setTurn(room: Room<Member>, id: number | null) {
+    if (room.turnTimer) clearTimeout(room.turnTimer);
+    room.turn = id;
+    room.turnFired = false;
+    room.turnEndsAt = Date.now() + TURN_TIME;
+    room.turnTimer = id === null ? null : setTimeout(() => this.passTurn(room), TURN_TIME);
+  }
+
+  /** Passes the turn to the next player in the order of the round whose tank is still there, and tells everyone. */
+  private passTurn(room: Room<Member>) {
+    const alive = new Set(room.field?.tanks.filter((tank) => tank.energy > 0).map((tank) => tank.id));
+    const from = room.turn === null ? -1 : room.order.indexOf(room.turn);
+    let next: number | null = null;
+    for (let step = 1; step <= room.order.length && next === null; step++) {
+      const id = room.order[(from + step) % room.order.length];
+      if (alive.has(id)) next = id;
+    }
+    this.setTurn(room, next);
+    this.announce(room);
   }
 
   /** Starts moving the projectiles, if they are not moving already. */
@@ -441,6 +519,8 @@ class Rooms<Member> {
       }
       flying ||= room.shots.length > 0;
       this.endRoundIfOver(room);
+      // In the classic mode the turn passes when the shot of the turn is over
+      if (room.turnFired && room.shots.length === 0 && !room.nextRoundTimer) this.passTurn(room);
     }
     if (!flying) this.stopTicker();
   }
@@ -484,11 +564,11 @@ class Rooms<Member> {
 
   private removePlayer(room: Room<Member>, player: Player<Member>) {
     room.players = room.players.filter((candidate) => candidate !== player);
-    this.announce(room);
-    if (room.field) {
-      removeTank(room.field, player.id);
-      this.sendField(room);
-    }
+    if (room.field) removeTank(room.field, player.id);
+    // The turn of a player who went passes on, unless a shot of that turn is still in the air
+    if (room.turn === player.id && !room.turnFired) this.passTurn(room);
+    else this.announce(room);
+    this.sendField(room);
   }
 
   /** The game starts by itself when the room is full. */
@@ -504,6 +584,19 @@ class Rooms<Member> {
     room.round += 1;
     room.shots = [];
     for (const player of room.players) player.reloadedAt = 0;
+    const ids = room.players.map((player) => player.id);
+    if (room.settings.turns === "classic") {
+      // The order of the turns is drawn for each round
+      for (let i = ids.length - 1; i > 0; i--) {
+        const j = Math.floor(random() * (i + 1));
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+      }
+      room.order = ids;
+      this.setTurn(room, ids[0] ?? null);
+    } else {
+      room.order = [];
+      this.setTurn(room, null);
+    }
     room.field = createField(
       room.players.map((player) => player.id),
       random
@@ -570,10 +663,11 @@ class Rooms<Member> {
   }
 
   private state(room: Room<Member>): RoomState {
-    const players: PlayerInfo[] = room.players.map(({ id, name, member }) => ({
+    const players: PlayerInfo[] = room.players.map(({ id, name, member, wins }) => ({
       id,
       name,
-      connected: member !== null
+      connected: member !== null,
+      wins
     }));
     return {
       room: room.id,
@@ -582,7 +676,8 @@ class Rooms<Member> {
       settings: room.settings,
       players,
       screen: room.screen !== null,
-      round: room.round
+      round: room.round,
+      turn: room.turn === null ? null : { player: room.turn, time: Math.max(0, room.turnEndsAt - Date.now()) }
     };
   }
 
@@ -597,6 +692,7 @@ class Rooms<Member> {
     clearInterval(room.tokenTimer);
     if (room.removeTimer) clearTimeout(room.removeTimer);
     if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
+    if (room.turnTimer) clearTimeout(room.turnTimer);
     this.tokens.delete(room.token);
     if (room.previousToken) this.tokens.delete(room.previousToken);
     this.rooms.delete(room.id);

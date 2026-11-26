@@ -19,7 +19,7 @@ export const SOCKET_PATH = "/ws";
  * A client tells its version in the address it connects to (see socketPath), the server in its
  * greeting. The test of this file fails when the messages change and the version does not.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 6;
 
 /** The name of the part of the address of the WebSocket API where a client tells its version. */
 export const PROTOCOL_PARAMETER = "protocol";
@@ -34,6 +34,10 @@ export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 10;
 /** The maximum number of players of a new room. */
 export const DEFAULT_MAX_PLAYERS = 8;
+/** How many rounds a game can have, and how many a new room has: as in the original. */
+export const MIN_ROUNDS = 1;
+export const MAX_ROUNDS = 1000;
+export const DEFAULT_ROUNDS = 10;
 export const MAX_NAME_LENGTH = 16;
 /** The longest text of a speech bubble, in characters. */
 export const MAX_SAY_LENGTH = 60;
@@ -51,6 +55,8 @@ export const AIM_INTERVAL = 50;
 export const SAY_INTERVAL = 2000;
 /** How long a tank reloads after firing, in milliseconds. So far there is one weapon, the Baby Missile. */
 export const RELOAD_TIME = 3000;
+/** How long a player has for a turn in the classic mode, in milliseconds. After it the turn is skipped. */
+export const TURN_TIME = 45000;
 /** The energy of a new tank. A tank is destroyed when its energy is 0. */
 export const MAX_ENERGY = 100;
 /** How long the result of a round is shown before the next round starts, in milliseconds. */
@@ -66,12 +72,25 @@ const ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** How a room is joined. "online" comes later. */
 export type RoomMode = "hotseat";
 
-/** Where a room is in a match. The shop, the results and the end come with the game. */
-export type RoomPhase = "lobby" | "playing";
+/**
+ * Where a room is in a game: in the lobby before it, playing its rounds, or finished, with the
+ * final results shown. The shop comes later.
+ */
+export type RoomPhase = "lobby" | "playing" | "finished";
+
+/**
+ * How the turns of a round go. Classic: one player at a time aims and fires, and the turn passes
+ * when the shot is over (the Sequential mode of the original). Live: everyone fires whenever their
+ * tank has reloaded.
+ */
+export type TurnMode = "classic" | "live";
 
 export interface RoomSettings {
   /** The room is full, and in the lobby the game starts by itself, when this many have joined. */
   maxPlayers: number;
+  /** How many rounds the game has. */
+  rounds: number;
+  turns: TurnMode;
 }
 
 export interface PlayerInfo {
@@ -80,6 +99,8 @@ export interface PlayerInfo {
   name: string;
   /** Whether the device of the player is connected right now. */
   connected: boolean;
+  /** How many rounds of the game the player has won: its tank was the last one left. */
+  wins: number;
 }
 
 /** Everything about a room that everyone in it may know. There are no keys or tokens in it. */
@@ -93,6 +114,11 @@ export interface RoomState {
   screen: boolean;
   /** The number of the round that is being played, from 1. 0 before the game. */
   round: number;
+  /**
+   * In the classic mode, while a round is played: the id of the player whose turn it is, and how
+   * long the player still has to fire, in milliseconds (0 once the shot has been fired). Otherwise null.
+   */
+  turn: { player: number; time: number } | null;
 }
 
 /** A tank on the playing field. */
@@ -166,6 +192,8 @@ export type ErrorCode =
   | "reloading"
   /** The tank of the player has been destroyed. */
   | "destroyed"
+  /** In the classic mode: it is not the turn of the player, or the player has already fired on this turn. */
+  | "not-your-turn"
   /** Another connection took over this screen or this player. The server closes this one. */
   | "replaced";
 
@@ -194,6 +222,8 @@ export type ClientMessage =
   | { type: "kick"; id: number }
   /** The host starts the game. */
   | { type: "start" }
+  /** The host takes a finished game back to the lobby, where a new one can be started and new players can join. */
+  | { type: "lobby" }
   /** A player turns the turret or sets the power, or both. */
   | { type: "aim"; angle?: number; power?: number }
   /** A player fires the tank, with the aim it has. */
@@ -251,7 +281,12 @@ function isText(value: unknown, maxLength: number): value is string {
 
 export function isRoomSettings(value: unknown): value is RoomSettings {
   if (typeof value !== "object" || value === null) return false;
-  return isInteger((value as RoomSettings).maxPlayers, MIN_PLAYERS, MAX_PLAYERS);
+  const { maxPlayers, rounds, turns } = value as RoomSettings;
+  return (
+    isInteger(maxPlayers, MIN_PLAYERS, MAX_PLAYERS) &&
+    isInteger(rounds, MIN_ROUNDS, MAX_ROUNDS) &&
+    (turns === "classic" || turns === "live")
+  );
 }
 
 /** Whether something received from a client is a message of the API. */
@@ -263,6 +298,7 @@ export function isClientMessage(value: unknown): value is ClientMessage {
     case "ping":
     case "leave":
     case "start":
+    case "lobby":
     case "fire":
       return true;
     case "create":

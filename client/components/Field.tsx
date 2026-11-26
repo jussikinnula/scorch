@@ -26,6 +26,8 @@ interface Props {
   /** The speech bubbles to show: the text by the id of the player. */
   bubbles?: Bubbles;
   action?: Action;
+  /** The id of the player whose turn it is, in the classic mode: the tank is pointed out. */
+  turn?: number | null;
 }
 
 /** Where the playing field is on a canvas: how large a pixel of the field is, and where its top left corner is. */
@@ -93,7 +95,13 @@ function drawBackground(field: FieldState, width: number, height: number, layout
   return canvas;
 }
 
-function drawTanks(context: CanvasRenderingContext2D, field: FieldState, players: PlayerInfo[]) {
+function drawTanks(
+  context: CanvasRenderingContext2D,
+  field: FieldState,
+  players: PlayerInfo[],
+  turn: number | null | undefined,
+  now: number
+) {
   for (const tank of field.tanks) {
     const player = players.find((candidate) => candidate.id === tank.id);
     if (tank.energy <= 0) {
@@ -146,6 +154,16 @@ function drawTanks(context: CanvasRenderingContext2D, field: FieldState, players
       context.strokeText(player.name, tank.x, tank.y - TANK_HEIGHT - TURRET_LENGTH - 10);
       context.fillStyle = "#fff";
       context.fillText(player.name, tank.x, tank.y - TANK_HEIGHT - TURRET_LENGTH - 10);
+    }
+    if (tank.id === turn) {
+      // An arrow that bobs above the tank whose turn it is
+      const top = tank.y - TANK_HEIGHT - TURRET_LENGTH - 44 + Math.sin(now / 200) * 3;
+      context.fillStyle = "#fff";
+      context.beginPath();
+      context.moveTo(tank.x - 8, top);
+      context.lineTo(tank.x + 8, top);
+      context.lineTo(tank.x, top + 12);
+      context.fill();
     }
     // The energy of the tank, as a bar under its name
     const bar = { x: tank.x - 16, y: tank.y - TANK_HEIGHT - TURRET_LENGTH - 6, width: 32, height: 3 };
@@ -305,14 +323,14 @@ function useWindowSize() {
 }
 
 /** The playing field: the terrain, the tanks and what flies, drawn on a canvas that covers the whole window. */
-export default function Field({ field, players, bubbles, action }: Props) {
+export default function Field({ field, players, bubbles, action, turn }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const background = useRef<{ of: number[][]; width: number; height: number; picture: HTMLCanvasElement } | null>(null);
   const tails = useRef(new Map<number, { x: number; y: number }[]>());
   const { width, height } = useWindowSize();
   // What to draw is kept where the drawing of each frame finds the latest of it
-  const scene = useRef({ field, players, bubbles, action, width, height });
-  scene.current = { field, players, bubbles, action, width, height };
+  const scene = useRef({ field, players, bubbles, action, turn, width, height });
+  scene.current = { field, players, bubbles, action, turn, width, height };
 
   useEffect(() => {
     const context = canvas.current?.getContext("2d");
@@ -320,7 +338,7 @@ export default function Field({ field, players, bubbles, action }: Props) {
 
     let frame = 0;
     const draw = () => {
-      const { field, players, bubbles, action, width, height } = scene.current;
+      const { field, players, bubbles, action, turn, width, height } = scene.current;
       const layout = layoutField(field, width, height);
 
       // The background is drawn again only when the terrain or the size of the window has changed
@@ -337,8 +355,9 @@ export default function Field({ field, players, bubbles, action }: Props) {
       context.setTransform(1, 0, 0, 1, 0, 0);
       context.drawImage(background.current!.picture, 0, 0);
       context.setTransform(layout.scale, 0, 0, layout.scale, layout.left, layout.top);
-      drawTanks(context, field, players);
-      if (action) drawAction(context, action, tails.current, performance.now());
+      const now = performance.now();
+      drawTanks(context, field, players, turn, now);
+      if (action) drawAction(context, action, tails.current, now);
       if (bubbles) drawBubbles(context, field, bubbles);
       frame = window.requestAnimationFrame(draw);
     };
