@@ -24,7 +24,8 @@ const flatField = (ground: number, tanks: Partial<TankState>[] = []): FieldState
   height: FIELD_HEIGHT,
   terrain: Array.from({ length: FIELD_WIDTH }, () => [ground, FIELD_HEIGHT]),
   tanks: tanks.map((tank, id) => ({ id, x: 100, y: ground, angle: 45, power: 500, energy: 100, ...tank })),
-  wind: 0
+  wind: 0,
+  walls: "none"
 });
 
 /** Flies a projectile until it is gone or has exploded. */
@@ -215,57 +216,76 @@ describe("a projectile", () => {
 
 describe("the damage of an explosion", () => {
   const tank: TankState = { id: 0, x: 500, y: 600, angle: 45, power: 500, energy: 100 };
-  const side = 500 + TANK_WIDTH / 2;
+  const middle = 600 - TANK_HEIGHT / 2;
 
-  it("is all of the energy when the explosion is at the body of the tank", () => {
-    expect(damageTo(tank, 500, 600 - TANK_HEIGHT, 20)).toBe(100);
-    expect(damageTo(tank, side, 600, 20)).toBe(100);
-    expect(damageTo(tank, 495, 595, 20)).toBe(100);
+  it("is the most at the middle of the tank, and what the weapon takes at the most", () => {
+    expect(damageTo(tank, 500, middle, 20)).toBe(100);
+    expect(damageTo(tank, 500, middle, 20, 50)).toBe(50);
+    expect(damageTo(tank, 500, middle, 150, 100)).toBe(100);
   });
 
-  it("is less the further the explosion is from the body, and none a radius away", () => {
-    const beside = (distance: number) => damageTo(tank, side + distance, 600, 20);
+  it("is less the further the explosion is from the middle of the tank, and none a radius away", () => {
+    const beside = (distance: number, most?: number) => damageTo(tank, 500 + distance, middle, 20, most);
     expect(beside(5)).toBe(75);
     expect(beside(10)).toBe(50);
-    // What was measured in the original: about 31 and 21 for two shots that landed beside a tank
-    expect(beside(14)).toBe(30);
-    expect(beside(16)).toBe(20);
     expect(beside(19)).toBe(5);
     expect(beside(20)).toBe(0);
-    expect(damageTo(tank, 500, 600 - TANK_HEIGHT - 20, 20)).toBe(0);
-    expect(damageTo(tank, 500, 600 - TANK_HEIGHT - 10, 20)).toBe(50);
+    expect(beside(-10)).toBe(50);
+    expect(damageTo(tank, 500, middle - 10, 20)).toBe(50);
+    // What was measured in the original: 37 for a crater about 7 of its pixels from the middle, a third of its radius
+    expect(Math.abs(damageTo(tank, 500 + 13, middle - 4, 20) - 37)).toBeLessThanOrEqual(6);
+    // A Baby Missile takes half of that
+    expect(beside(10, 50)).toBe(25);
   });
 
   it("takes energy from a tank beside which a shot lands, and tells it", () => {
     const field = flatField(600, [{ x: 100 }, { x: 700, power: 900 }]);
+    // A Missile that comes down just past the side of the tank
     const { events } = fly(field, {
       id: 1,
       owner: 0,
-      weapon: "baby-missile",
-      x: 700 + TANK_WIDTH / 2 + 10,
+      weapon: "missile",
+      x: 700 + TANK_WIDTH / 2 + 2,
       y: 300,
       vx: 0,
       vy: 0
     });
 
     const energy = field.tanks[1].energy;
-    expect(energy).toBe(50);
-    expect(events).toContainEqual({ event: "damage", id: 1, energy, amount: 50, by: 0 });
+    expect(energy).toBeGreaterThan(30);
+    expect(energy).toBeLessThan(70);
+    expect(events).toContainEqual({ event: "damage", id: 1, energy, amount: 100 - energy, by: 0 });
     expect(field.tanks[0].energy).toBe(100);
     // The power is at most ten times the energy
-    expect(field.tanks[1].power).toBe(500);
+    expect(field.tanks[1].power).toBe(energy * 10);
   });
 
-  it("destroys a tank that is hit, which then does not stop projectiles or take damage", () => {
+  it("takes several Baby Missiles to destroy a tank, even when they come down right on it", () => {
     const field = flatField(600, [{ x: 100 }, { x: 700 }]);
-    const { events } = fly(field, { id: 1, owner: 0, weapon: "baby-missile", x: 700, y: 300, vx: 0, vy: 0 });
+    let hits = 0;
+    while (field.tanks[1].energy > 0 && hits < 20) {
+      fly(field, { id: 1, owner: 0, weapon: "baby-missile", x: 700, y: 300, vx: 0, vy: 0 });
+      hits += 1;
+      if (hits === 1) {
+        expect(field.tanks[1].energy).toBeGreaterThanOrEqual(55);
+        expect(field.tanks[1].energy).toBeLessThan(80);
+      }
+    }
+    expect(hits).toBeGreaterThanOrEqual(3);
+    expect(hits).toBeLessThan(8);
+  });
+
+  it("destroys a tank with a Baby Nuke that comes down on it, and a wreck does not stop projectiles or take damage", () => {
+    const field = flatField(600, [{ x: 100 }, { x: 700 }]);
+    const { events } = fly(field, { id: 1, owner: 0, weapon: "baby-nuke", x: 700, y: 300, vx: 0, vy: 0 });
     expect(field.tanks[1]).toMatchObject({ energy: 0, power: 0 });
     expect(events).toContainEqual({ event: "damage", id: 1, energy: 0, amount: 100, by: 0 });
 
+    const ground = field.tanks[1].y;
     const next = fly(field, { id: 2, owner: 0, weapon: "baby-missile", x: 700, y: 300, vx: 0, vy: 0 });
     expect(next.events.filter((event) => event.event === "damage")).toEqual([]);
     // It fell through the wreck to the ground
-    expect((next.events[0] as { y: number }).y).toBeGreaterThan(600 - TANK_HEIGHT);
+    expect((next.events[0] as { y: number }).y).toBeGreaterThanOrEqual(ground);
   });
 });
 
@@ -323,8 +343,10 @@ describe("the weapons in the air", () => {
       drop(field, weapon, 700 + TANK_WIDTH / 2 + 30);
       return field.tanks[1].energy;
     };
+    // 44 pixels from the middle of the tank: out of the reach of a Baby Missile and a Missile
     expect(beside("baby-missile")).toBe(100);
-    expect(beside("missile")).toBe(75);
+    expect(beside("missile")).toBe(100);
+    expect(beside("baby-nuke")).toBeLessThan(70);
     // A Nuke also takes the ground from under the tank, and the fall takes the rest
     expect(beside("nuke")).toBe(0);
   });
@@ -367,7 +389,11 @@ describe("the weapons in the air", () => {
   it("hurt a buried tank that fires: its shot goes off at the turret", () => {
     const field = flatField(600, [{ x: 100 }, { x: 700, angle: 90, power: 500 }]);
     drop(field, "dirt-ball", 700);
-    const { events } = fly(field, launch(field.tanks[1], 2));
+    // A Baby Missile is too small to reach the tank from the end of its turret, a Missile is not
+    fly(field, launch(field.tanks[1], 2));
+    expect(field.tanks[1].energy).toBe(100);
+    drop(field, "dirt-ball", 700);
+    const { events } = fly(field, launch(field.tanks[1], 3, "missile"));
     expect(events[0]).toMatchObject({ event: "explode", x: 700 });
     expect(field.tanks[1].energy).toBeGreaterThan(0);
     expect(field.tanks[1].energy).toBeLessThan(100);
@@ -477,12 +503,12 @@ describe("a roller", () => {
     const { explosion } = roll(field, 400);
     expect(explosion!.x).toBeGreaterThanOrEqual(700 - TANK_WIDTH / 2 - 1);
     expect(explosion!.x).toBeLessThanOrEqual(700);
-    expect(field.tanks[1].energy).toBe(0);
+    expect(field.tanks[1].energy).toBeLessThan(70);
 
     const direct = shaped((x) => 400 + x * 0.3, [{ x: 100 }, { x: 700 }]);
     const hit = roll(direct, 700);
     expect(hit.rolled).toBe(false);
-    expect(direct.tanks[1].energy).toBe(0);
+    expect(direct.tanks[1].energy).toBeLessThan(50);
   });
 
   it("is gone when it rolls off the field, and never rolls for ever", () => {
@@ -524,5 +550,121 @@ describe("the wind", () => {
     // Twice the power is twice the time in the air, and four times the drift
     expect(drift(50, 600) / drift(50, 300)).toBeGreaterThan(3.5);
     expect(drift(50, 600) / drift(50, 300)).toBeLessThan(4.5);
+  });
+});
+
+describe("the walls", () => {
+  /** Follows a projectile until it explodes or is gone: where it exploded, and the furthest it was to each side and up. */
+  const follow = (field: FieldState, shot: Shot) => {
+    let shots = [shot];
+    const seen = { left: shot.x, right: shot.x, top: shot.y, explosion: null as { x: number; y: number } | null };
+    for (let step = 0; shots.length > 0 && step < 100000; step++) {
+      const result = stepShots(field, shots);
+      for (const flying of result.shots) {
+        seen.left = Math.min(seen.left, flying.x);
+        seen.right = Math.max(seen.right, flying.x);
+        seen.top = Math.min(seen.top, flying.y);
+      }
+      const explosion = result.events.find((event) => event.event === "explode");
+      if (explosion) seen.explosion = explosion as { x: number; y: number };
+      shots = result.shots;
+    }
+    return seen;
+  };
+  const walled = (walls: FieldState["walls"], tanks: Partial<TankState>[] = []) => ({
+    ...flatField(600, tanks),
+    walls
+  });
+  /** A shot to the right from near the right side, which would land well past it. */
+  const out = (): Shot => ({
+    id: 1,
+    owner: 0,
+    weapon: "baby-missile",
+    x: FIELD_WIDTH - 100,
+    y: 400,
+    vx: 400,
+    vy: -300
+  });
+
+  it("let a projectile fly out past a side when there are none: it lands outside or is gone", () => {
+    const seen = follow(walled("none"), out());
+    expect(seen.right).toBeGreaterThan(FIELD_WIDTH);
+    expect(seen.explosion).toBeNull();
+  });
+
+  it("throw a projectile back from the side when they are rubber", () => {
+    const seen = follow(walled("rubber"), out());
+    expect(seen.right).toBeLessThanOrEqual(FIELD_WIDTH);
+    // It lands as far inside the field as it would have landed outside it
+    const open = follow(
+      { ...walled("none"), width: FIELD_WIDTH * 2, terrain: [...flatField(600).terrain, ...flatField(600).terrain] },
+      out()
+    );
+    expect(seen.explosion!.x).toBeLessThan(FIELD_WIDTH - 100);
+    expect(Math.abs(2 * FIELD_WIDTH - open.explosion!.x - seen.explosion!.x)).toBeLessThanOrEqual(3);
+  });
+
+  it("throw a projectile back from the top when they are rubber, and from the left side too", () => {
+    const up = follow(walled("rubber"), { id: 1, owner: 0, weapon: "baby-missile", x: 640, y: 300, vx: 0, vy: -900 });
+    expect(up.top).toBeGreaterThanOrEqual(0);
+    expect(up.explosion!.x).toBe(640);
+    const free = follow(walled("none"), { id: 1, owner: 0, weapon: "baby-missile", x: 640, y: 300, vx: 0, vy: -900 });
+    expect(free.top).toBeLessThan(0);
+
+    const left = follow(walled("rubber"), {
+      id: 1,
+      owner: 0,
+      weapon: "baby-missile",
+      x: 100,
+      y: 400,
+      vx: -400,
+      vy: -300
+    });
+    expect(left.left).toBeGreaterThanOrEqual(0);
+    expect(left.explosion!.x).toBeGreaterThan(100);
+  });
+
+  it("bring a projectile in from the other side when the field wraps around", () => {
+    const seen = follow(walled("wraparound"), {
+      id: 1,
+      owner: 0,
+      weapon: "baby-missile",
+      x: FIELD_WIDTH - 100,
+      y: 400,
+      vx: 200,
+      vy: -100
+    });
+    expect(seen.right).toBeLessThan(FIELD_WIDTH);
+    // It went out on the right and landed on the left
+    expect(seen.left).toBeLessThan(100);
+    expect(seen.explosion!.x).toBeLessThan(FIELD_WIDTH / 2);
+    const back = follow(walled("wraparound"), {
+      id: 1,
+      owner: 0,
+      weapon: "baby-missile",
+      x: 100,
+      y: 400,
+      vx: -200,
+      vy: -100
+    });
+    expect(back.explosion!.x).toBeGreaterThan(FIELD_WIDTH / 2);
+  });
+
+  it("hit a tank that stands just inside the other side when the field wraps around", () => {
+    const field = walled("wraparound", [{ x: 640 }, { x: 20 }]);
+    follow(field, { id: 1, owner: 0, weapon: "nuke", x: FIELD_WIDTH - 60, y: 560, vx: 200, vy: -60 });
+    expect(field.tanks[1].energy).toBeLessThan(100);
+  });
+
+  it("turn a roller back, or bring it in from the other side", () => {
+    const slope = (walls: FieldState["walls"]) => {
+      const field = walled(walls);
+      // Ground that falls to the right all the way to the edge
+      field.terrain = field.terrain.map((_, x) => [Math.round(300 + x * 0.3), FIELD_HEIGHT]);
+      return follow(field, { id: 1, owner: 0, weapon: "roller", x: 1100, y: 100, vx: 0, vy: 0 });
+    };
+    expect(slope("none").explosion).toBeNull();
+    expect(slope("rubber").explosion!.x).toBeGreaterThan(FIELD_WIDTH - 200);
+    expect(slope("wraparound").explosion!.x).toBeLessThan(400);
   });
 });

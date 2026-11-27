@@ -38,14 +38,6 @@ export const BABY_MISSILE_RADIUS = blastRadius(WEAPONS[0]);
  * a second. Our own value: the spread of the original is not measured yet.
  */
 export const MIRV_SPREAD = 40;
-/**
- * The energy a tank loses when an explosion touches its body: all of it. In the original a Baby
- * Missile that comes down on a whole tank destroys it, and two that landed beside one took 21 and 31
- * of its energy (docs/ORIGINAL.md, "Damage"). A damage that falls evenly from all of the energy at
- * the body to nothing a radius away fits all three, but the shape of the fall is not measured yet.
- */
-export const DIRECT_HIT_DAMAGE = 100;
-
 /** The fastest a roller starts to roll at, whatever speed it landed with, in pixels a second. */
 export const ROLLER_START_SPEED = 200;
 /** The fastest a roller rolls, in pixels a second. */
@@ -128,15 +120,18 @@ const hitsTank = (tank: TankState, x: number, y: number) =>
   tank.energy > 0 && Math.abs(x - tank.x) <= TANK_WIDTH / 2 && y <= tank.y && y >= tank.y - TANK_HEIGHT;
 
 /**
- * The energy an explosion takes from a tank: all of it when the explosion is at the body of the
- * tank, less in proportion to the distance from the body, and none a radius away or further.
+ * The energy an explosion takes from a tank: the most at the middle of the tank, less in proportion
+ * to the distance from it, and none a blast radius away or further.
+ *
+ * The one clean measurement from the original fits this: a Baby Missile whose crater was 7 pixels
+ * from the middle of a tank took 37 of its energy (docs/ORIGINAL.md, "Damage"). How much a weapon
+ * takes at the most is its own number (shared/weapons.ts).
+ *
+ * @param most What the explosion takes at the middle of the tank.
  */
-export function damageTo(tank: TankState, x: number, y: number, radius: number) {
-  // The distance from the middle of the explosion to the nearest point of the body
-  const dx = Math.max(0, Math.abs(x - tank.x) - TANK_WIDTH / 2);
-  const dy = Math.max(0, tank.y - TANK_HEIGHT - y, y - tank.y);
-  const distance = Math.hypot(dx, dy);
-  return distance >= radius ? 0 : Math.max(1, Math.round(DIRECT_HIT_DAMAGE * (1 - distance / radius)));
+export function damageTo(tank: TankState, x: number, y: number, radius: number, most = 100) {
+  const distance = Math.hypot(x - tank.x, y - (tank.y - TANK_HEIGHT / 2));
+  return distance >= radius ? 0 : Math.round(most * (1 - distance / radius));
 }
 
 /**
@@ -159,9 +154,9 @@ function detonate(field: FieldState, weapon: Weapon, at: { x: number; y: number 
   events.push({ event: "explode", ...at, radius: r, weapon: weapon.id });
   for (const tank of field.tanks) {
     let amount = 0;
-    if (weapon.kind !== "dirt" && weapon.kind !== "riot" && tank.energy > 0) {
+    if (weapon.damage > 0 && tank.energy > 0) {
       // The damage is by where the tank was when the explosion happened, before it came down
-      amount = damageTo(tank, at.x, at.y, r);
+      amount = damageTo(tank, at.x, at.y, r, weapon.damage);
     }
     // A tank falls with the ground under it, and the fall hurts it. Dirt that lands on it does not lift it.
     const fall = Math.max(0, groundAt(field.terrain, tank.x, field.height) - tank.y);
@@ -203,8 +198,18 @@ function rollShot(field: FieldState, shot: Shot, weapon: Weapon, events: ShotEve
 
   roll.progress += Math.max(ROLLER_TURN_SPEED, Math.sqrt(roll.speed2)) / STEPS_PER_SECOND;
   for (; roll.progress >= 1; roll.progress -= 1) {
-    const next = x + roll.direction;
-    if (next < 0 || next >= field.width) return null;
+    let next = x + roll.direction;
+    if (next < 0 || next >= field.width) {
+      // At the edge of the field a roller does what the walls say: rolls out, turns back or comes in from the other side
+      if (field.walls === "none") return null;
+      if (field.walls === "rubber") {
+        roll.direction = roll.direction === 1 ? -1 : 1;
+        continue;
+      }
+      next = next < 0 ? field.width - 1 : 0;
+      x = next;
+      continue;
+    }
     // y grows downwards: a positive drop is downhill
     const drop = (ground(x + roll.direction * ROLLER_REACH) - ground(x)) / ROLLER_REACH;
     const behind = (ground(x - roll.direction * ROLLER_REACH) - ground(x)) / ROLLER_REACH;
@@ -250,17 +255,34 @@ export function stepShots(
       if (rolling) flying.push(rolling);
       continue;
     }
-    const vx = shot.vx + field.wind * WIND_PER_UNIT * dt;
-    const vy = shot.vy + GRAVITY * dt;
+    let vx = shot.vx + field.wind * WIND_PER_UNIT * dt;
+    let vy = shot.vy + GRAVITY * dt;
+    const from = { x: shot.x, y: shot.y };
     const to = { x: shot.x + vx * dt, y: shot.y + vy * dt };
+    if (field.walls === "rubber") {
+      // Rubber walls: the sides and the top of the field throw a projectile back as fast as it came
+      if (to.x < 0 || to.x > field.width) {
+        to.x = to.x < 0 ? -to.x : 2 * field.width - to.x;
+        vx = -vx;
+      }
+      if (to.y < 0) {
+        to.y = -to.y;
+        vy = -vy;
+      }
+    } else if (field.walls === "wraparound" && (to.x < 0 || to.x >= field.width)) {
+      // What leaves from one side comes in from the other, at the same height and speed
+      const shift = to.x < 0 ? field.width : -field.width;
+      from.x += shift;
+      to.x += shift;
+    }
 
     // The way from the old place to the new one is walked a pixel at a time, so that a fast
     // projectile does not jump over a thin wall or a tank
-    const steps = Math.max(1, Math.ceil(Math.hypot(to.x - shot.x, to.y - shot.y)));
+    const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y)));
     let hit: { x: number; y: number; tank: boolean } | null = null;
     for (let i = 1; i <= steps && !hit; i++) {
-      const x = shot.x + ((to.x - shot.x) * i) / steps;
-      const y = shot.y + ((to.y - shot.y) * i) / steps;
+      const x = from.x + ((to.x - from.x) * i) / steps;
+      const y = from.y + ((to.y - from.y) * i) / steps;
       const tank = field.tanks.some((candidate) => hitsTank(candidate, x, y));
       if (tank || isDirt(field.terrain, x, y)) hit = { x, y, tank };
     }

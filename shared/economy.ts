@@ -35,3 +35,16 @@ export const withInterest = (money: number, percent: number) =>
 /** Whether a weapon is sold in a shop of an arms level: all but those there is no end of and those of a higher level. */
 export const isForSale = (weapon: Weapon, armsLevel: number) =>
   Number.isFinite(weapon.bundle) && weapon.armsLevel <= armsLevel;
+
+/**
+ * What the shop pays for an item that is sold back, as a part of what it costs. Our own value: the
+ * manual of the original only says that items are usually sold at a loss.
+ */
+export const SELL_RATE = 0.8;
+
+/** How many of a weapon are sold at a time: a bundle, or what the player has left of one. */
+export const sellCount = (weapon: Weapon, owned: number) => Math.min(owned, weapon.bundle);
+
+/** What the shop pays for a number of a weapon. */
+export const sellPrice = (weapon: Weapon, count: number) =>
+  Math.floor((weapon.price / weapon.bundle) * count * SELL_RATE);

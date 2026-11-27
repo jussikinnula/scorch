@@ -25,6 +25,12 @@ export interface Weapon {
   bundle: number;
   /** The radius of the explosion in pixels of the original game at 640x480, 0 if there is none. */
   radius: number;
+  /**
+   * The most energy its explosion takes from a tank: what a tank loses when the explosion is right
+   * at its middle. Our own values, by how the game plays: the small weapons take several hits to
+   * destroy a tank. 0 for what does no damage.
+   */
+  damage: number;
   /** The lowest arms level (0-4) of a game where the weapon can be bought. */
   armsLevel: number;
   /** How long the tank reloads after firing this in the live mode, in seconds. */
@@ -39,13 +45,44 @@ export const WEAPONS: readonly Weapon[] = [
     price: 400,
     bundle: Infinity,
     radius: 10,
+    damage: 50,
     armsLevel: 0,
     reload: 3
   },
-  { id: "missile", kind: "blast", name: "Missile", price: 1875, bundle: 5, radius: 20, armsLevel: 0, reload: 5 },
-  { id: "baby-nuke", kind: "blast", name: "Baby Nuke", price: 10000, bundle: 3, radius: 40, armsLevel: 0, reload: 12 },
-  { id: "nuke", kind: "blast", name: "Nuke", price: 12000, bundle: 1, radius: 75, armsLevel: 1, reload: 20 },
-  { id: "mirv", kind: "mirv", name: "MIRV", price: 10000, bundle: 3, radius: 20, armsLevel: 2, reload: 15 },
+  {
+    id: "missile",
+    kind: "blast",
+    name: "Missile",
+    price: 1875,
+    bundle: 5,
+    radius: 20,
+    damage: 75,
+    armsLevel: 0,
+    reload: 5
+  },
+  {
+    id: "baby-nuke",
+    kind: "blast",
+    name: "Baby Nuke",
+    price: 10000,
+    bundle: 3,
+    radius: 40,
+    damage: 100,
+    armsLevel: 0,
+    reload: 12
+  },
+  {
+    id: "nuke",
+    kind: "blast",
+    name: "Nuke",
+    price: 12000,
+    bundle: 1,
+    radius: 75,
+    damage: 100,
+    armsLevel: 1,
+    reload: 20
+  },
+  { id: "mirv", kind: "mirv", name: "MIRV", price: 10000, bundle: 3, radius: 20, damage: 75, armsLevel: 2, reload: 15 },
   {
     id: "baby-roller",
     kind: "roller",
@@ -53,10 +90,21 @@ export const WEAPONS: readonly Weapon[] = [
     price: 5000,
     bundle: 10,
     radius: 10,
+    damage: 50,
     armsLevel: 2,
     reload: 5
   },
-  { id: "roller", kind: "roller", name: "Roller", price: 6000, bundle: 5, radius: 20, armsLevel: 2, reload: 7 },
+  {
+    id: "roller",
+    kind: "roller",
+    name: "Roller",
+    price: 6000,
+    bundle: 5,
+    radius: 20,
+    damage: 75,
+    armsLevel: 2,
+    reload: 7
+  },
   {
     id: "heavy-roller",
     kind: "roller",
@@ -64,11 +112,32 @@ export const WEAPONS: readonly Weapon[] = [
     price: 6750,
     bundle: 2,
     radius: 45,
+    damage: 100,
     armsLevel: 3,
     reload: 14
   },
-  { id: "dirt-clod", kind: "dirt", name: "Dirt Clod", price: 5000, bundle: 10, radius: 20, armsLevel: 0, reload: 4 },
-  { id: "dirt-ball", kind: "dirt", name: "Dirt Ball", price: 5000, bundle: 5, radius: 35, armsLevel: 0, reload: 6 },
+  {
+    id: "dirt-clod",
+    kind: "dirt",
+    name: "Dirt Clod",
+    price: 5000,
+    bundle: 10,
+    radius: 20,
+    damage: 0,
+    armsLevel: 0,
+    reload: 4
+  },
+  {
+    id: "dirt-ball",
+    kind: "dirt",
+    name: "Dirt Ball",
+    price: 5000,
+    bundle: 5,
+    radius: 35,
+    damage: 0,
+    armsLevel: 0,
+    reload: 6
+  },
   {
     id: "ton-of-dirt",
     kind: "dirt",
@@ -76,10 +145,21 @@ export const WEAPONS: readonly Weapon[] = [
     price: 6750,
     bundle: 2,
     radius: 70,
+    damage: 0,
     armsLevel: 1,
     reload: 12
   },
-  { id: "riot-bomb", kind: "riot", name: "Riot Bomb", price: 5000, bundle: 5, radius: 30, armsLevel: 3, reload: 5 },
+  {
+    id: "riot-bomb",
+    kind: "riot",
+    name: "Riot Bomb",
+    price: 5000,
+    bundle: 5,
+    radius: 30,
+    damage: 0,
+    armsLevel: 3,
+    reload: 5
+  },
   {
     id: "heavy-riot-bomb",
     kind: "riot",
@@ -87,10 +167,11 @@ export const WEAPONS: readonly Weapon[] = [
     price: 4750,
     bundle: 2,
     radius: 45,
+    damage: 0,
     armsLevel: 3,
     reload: 8
   },
-  { id: "tracer", kind: "tracer", name: "Tracer", price: 10, bundle: 20, radius: 0, armsLevel: 0, reload: 1 }
+  { id: "tracer", kind: "tracer", name: "Tracer", price: 10, bundle: 20, radius: 0, damage: 0, armsLevel: 0, reload: 1 }
 ];
 
 /** The weapon everyone always has, and the one a tank has chosen when nothing else is. */

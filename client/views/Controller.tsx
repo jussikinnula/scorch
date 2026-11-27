@@ -255,6 +255,7 @@ export default function Controller({ api, room }: Props) {
             time={shopTime}
             armsLevel={state.settings.armsLevel}
             onBuy={(weapon) => api.send({ type: "buy", weapon })}
+            onSell={(weapon) => api.send({ type: "sell", weapon })}
             onReady={() => api.send({ type: "ready" })}
           />
         </>

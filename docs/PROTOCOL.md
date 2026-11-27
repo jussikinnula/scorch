@@ -104,13 +104,13 @@ If a second connection takes over a screen or a player with the right key, the f
 
 The state of the room (`RoomState`) is sent to everyone in the room whenever it changes: someone joins, leaves, loses or regains the connection, the settings change, or the phase changes.
 
-| From       | Message                 | When          | What happens                                                                                                                                                                                                                                              |
-| ---------- | ----------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Screen     | `lobby`                 | When finished | Back to the lobby for a new game.                                                                                                                                                                                                                         |
-| Screen     | `settings { settings }` | In the lobby  | Changes the settings: the maximum number of players (2–10, 8 by default; not below the number already in the room), the rounds, the turns, the strongest wind, the cash at the start, the interest, the arms level and whether every shot leaves a trace. |
-| Screen     | `kick { id }`           | Any time      | Removes the player; its key stops working. The controller of the player gets the error `no-session`.                                                                                                                                                      |
-| Screen     | `start`                 | In the lobby  | Starts the game, if there are at least two players.                                                                                                                                                                                                       |
-| Controller | `leave`                 | Any time      | The player leaves for good. There is no answer.                                                                                                                                                                                                           |
+| From       | Message                 | When          | What happens                                                                                                                                                                                                                                                                                   |
+| ---------- | ----------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Screen     | `lobby`                 | When finished | Back to the lobby for a new game.                                                                                                                                                                                                                                                              |
+| Screen     | `settings { settings }` | In the lobby  | Changes the settings: the maximum number of players (2–10, 8 by default; not below the number already in the room), the rounds, the turns, the strongest wind, the cash at the start, the interest, the arms level, whether every shot leaves a trace, whether the wind changes and the walls. |
+| Screen     | `kick { id }`           | Any time      | Removes the player; its key stops working. The controller of the player gets the error `no-session`.                                                                                                                                                                                           |
+| Screen     | `start`                 | In the lobby  | Starts the game, if there are at least two players.                                                                                                                                                                                                                                            |
+| Controller | `leave`                 | Any time      | The player leaves for good. There is no answer.                                                                                                                                                                                                                                                |
 
 The game also starts by itself when the room becomes full.
 
@@ -183,7 +183,16 @@ controller                          server                          screen
 - The host sets the strongest wind of the room in the lobby: `settings.maxWind`, 0–500, 200 by default as in the original. 0 is no wind.
 - Each round has a wind of its own, to either side, at most the strongest allowed and mostly much less, as in the original: on average 0.15 times the strongest. It is a whole number with a sign: positive blows to the right.
 - The wind is in the state of the room (`wind`), because everyone aims by it: the screen shows it in a corner and a phone above the energy of the tank. It is also in the `field`. Outside a round it is 0.
+- With `settings.changingWind` on (Changing Wind of the original, off by default), the wind moves by -5 to 5 whenever the air has cleared after a shot: after every turn in the classic mode, and in the live mode whenever nothing is flying. The new wind comes in the state of the room.
 - The wind pushes everything in the air sideways, as measured from the original (`WIND_PER_UNIT` in `shared/sim/shots.ts`): a wind of 400 pushes as hard as gravity pulls.
+
+### Walls
+
+- `settings.walls` tells what the edges of the field do to a projectile: `none` (the default, as in the original), `rubber` or `wraparound`. It is also in the `field`.
+- **None**: a projectile flies out. Past a side it is followed for a while and then gone; above the field it comes back down.
+- **Rubber**: the sides and the top of the field throw a projectile back as fast as it came. A roller turns back at the edge.
+- **Wraparound**: what leaves from one side comes in from the other, at the same height and speed. The top is open. A roller rolls on from the other side.
+- The other walls of the original (Concrete, Padded, Spring, Random, Erratic) come later. How exactly the original bounces a projectile is not measured.
 
 ### Weapons
 
@@ -225,6 +234,7 @@ controller                          server                          everyone
 - **Arms level**: `settings.armsLevel` (0–4, 4 by default as in the original). The shop sells only the weapons of that level or lower; a `buy` of another is refused with `no-weapon`.
 - **The shop** opens before a round when at least one player can afford something: before the first round only if the game starts with cash. The phase of the room is `shop`, and `shop` in its state tells how long the shop is still open (`time`, at most 60 seconds) and who are ready.
 - `buy { weapon }` buys one bundle of a weapon at its price (`shared/weapons.ts`). It is answered with `weapons`, and the new money comes in the state of the room. It is refused with `no-weapon` (no such weapon, or one that is not sold: the Baby Missile), `no-money`, or `too-many` (nobody can have more than 99 of a weapon).
+- `sell { weapon }` sells a bundle of a weapon back, or what the player has left of one, at four fifths of its price (`SELL_RATE` in `shared/economy.ts`, our own value). It is answered with `weapons`, and refused with `no-weapon` when the player has none of it. When the weapon the tank had chosen is sold out, the tank goes back to the Baby Missile.
 - `ready` tells that the player is done. The round starts when every player who is connected is ready, or when the time is out. A player who is not connected is not waited for.
 - A device that returns to the shop gets the state of the room and its `weapons`.
 
@@ -245,7 +255,7 @@ A device that returns gets the turn with the state of the room, with the time th
 
 ### Damage and rounds
 
-- A tank has an **energy** from 100 down to 0, which is in the tanks of the `field` and `terrain` messages. An explosion takes energy from the tanks its fire reaches, the more the closer it is (`shared/sim/shots.ts`): all of it when the explosion is at the body of the tank, as in the original, and less in proportion to the distance, down to nothing a blast radius away.
+- A tank has an **energy** from 100 down to 0, which is in the tanks of the `field` and `terrain` messages. An explosion takes energy from the tanks its fire reaches, the more the closer it is (`shared/sim/shots.ts`): the most at the middle of the tank, less in proportion to the distance, down to nothing a blast radius away. The most is by the weapon (`damage` in `shared/weapons.ts`): a Baby Missile takes half of the energy of a whole tank at best, the nukes all of it. A tank also loses energy when it falls.
 - The player is told the energy of its own tank with `energy { energy }`: at the start of a round, whenever it changes, and when the controller returns.
 - **The power is at most ten times the energy**, as in the original. The server lowers the power of a tank that is damaged, and an `aim` with more power is cut to what the energy allows.
 - A tank with no energy is **destroyed**: it stays on the field as a wreck, a projectile flies through it, and its `aim` and `fire` are refused with the error `destroyed`. Its player can still use the speech bubbles.
@@ -302,8 +312,7 @@ A connection that sends more than 40 messages within a second gets `rate-limited
 
 Sketched only, to check that the design above has room for them. They are designed properly when their phase comes.
 
-- **Changing Wind** (later): the wind changes during a round. The new wind comes in the state of the room, as now.
-- **The shop, later**: selling (`sell { weapon, quantity }`) and Free Market.
+- **The shop, later**: Free Market.
 - **The live mode** (phase 2): the same `aim` and `fire`; the server answers a `fire` during a reload with an error and tells each player when its reload ends.
 - **Online** (phase 3): `create { mode: "online", public }`, a list of the public rooms, and `join` with the token of a private link, which does not change. The role is "player": it gets both the messages of a controller and those of the field.
 

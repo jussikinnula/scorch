@@ -241,7 +241,8 @@ Measured with shots straight up (angle 90) at powers of 250–500, Trace Paths o
 - At 640x480 the push is **0.0005 pixels a step squared for each unit of wind**. A wind of 400 pushes sideways as hard as gravity (0.2) pulls down, and the default Max. Wind of 200 half as hard.
 - The game shows the wind in the top right corner as an arrow and a number, e.g. `◀ Wind: 97`.
 - **The wind of a round is mostly light.** Fourteen new games with the default Max. Wind of 200 had winds of 30, 0, 42, 29, 22, 19, 46, 24, 9, 52, 98, 4, 34 and 8: 30 on average, half of them under 27, the strongest 98, eight to the right and five to the left. So Max. Wind is a ceiling that is rarely near, not the usual strength. SCORCH draws the wind so that it is the rarer the stronger it is, with an average of 0.15 times the strongest allowed (`drawWind` in `shared/sim/field.ts`); the exact rule of the original is not known. (`tools/original/windsample.py`)
-- Not measured: how much Changing Wind changes the wind, and whether the push grows with the resolution as the speed of a shot does (SCORCH scales it with the field, as it does gravity).
+- **Changing Wind moves the wind a few units after every shot.** In a game with it on, the wind before each of 26 shots was 19, 17, 18, 23, 18, 16, 18, 18, 22, 26, 25, 24, 25, 22, 24, 26, 30, 35, 36, 35, 37, 34, 32, 37, 39 and 38: each change was between -5 and 5, and the wind wandered rather than jumped. SCORCH changes it by a whole number from -5 to 5, any of them as often (`changeWind` in `shared/sim/field.ts`). (`tools/original/cwind.py`)
+- Not measured: whether the push grows with the resolution as the speed of a shot does (SCORCH scales it with the field, as it does gravity).
 
 ### Damage
 
@@ -252,7 +253,7 @@ Measured with Baby Missiles and Tanks Fall off, reading the energy of a tank fro
 - A hit on a mountain 60 pixels or more from the tank took nothing.
 - The crater of a Baby Missile at 640x480 is about 180 pixels of dirt when it hits a slope, which fits half a circle of a radius of 10: the blast radius of the equipment list is in pixels of the screen at this graphics mode.
 
-SCORCH uses the simplest rule that fits all of these (`shared/sim/shots.ts`): an explosion at the body of a tank takes all of its energy, and the damage falls evenly with the distance from the body to nothing a blast radius away. The shape of the fall is not measured: for the two hits beside a tank the energy is known but the distance is not, because the place of the explosion could not be read accurately enough.
+SCORCH does not follow the first of these (`shared/sim/shots.ts`, `shared/weapons.ts`). Its damage falls evenly with the distance from the middle of the tank to nothing a blast radius away, which fits the one hit whose distance is known (see below), and each weapon has a most that it takes at the middle: 50 for a Baby Missile, 75 for a Missile, all 100 for the nukes. So a Baby Missile takes a few hits to destroy a tank, where in the original one that comes down on a tank destroys it. This is a choice for the sake of the game: with the damage of the original the weapon that everyone has no end of decided the rounds.
 
 A later try to get the distance, with shots a degree off straight up (they come down a few pixels from the tank that fires them, with no wind), did not settle it. One clean hit took 37 of the energy with the middle of the crater about 7 pixels from the middle of the tank, which is less than the rule above gives (about 80) and close to a damage that falls evenly with the distance from the middle of the tank (33). Other hits did not fit either rule: the tanks stood on slopes and peaks, the shots fell past them into earlier craters, and Tanks Fall off did not seem to keep a tank from coming down. Level ground would make this measurable, but neither Flatten Peaks nor Bumpiness and Slope at 0 gave any.
 
@@ -272,12 +273,12 @@ The manual does not give these, and the simulation needs them. They are measured
 
 **Before phase 1**
 
-- How Changing Wind changes the wind. (How hard the wind pushes and how strong it usually is are measured: see "Wind".)
 - The damage of an explosion by the distance from the tank, for each weapon of phase 1. The energy before and after a hit can be read; what is missing is a good enough place for the explosion. The dotted trace ends several pixels short, and a circle fitted to the crater is thrown off by the traces drawn over the dirt. Next: traces off, and the circle fitted only to the dirt that went.
 - Fall damage by height. SCORCH takes a point of energy for each pixel of the original that a tank falls (`FALL_DAMAGE`), as its own value.
 - The points of the Standard scoring: for damage, for a kill, for surviving, and the penalty for hitting oneself. This also decides the default of Cash at Start in PLAN.md.
 - How interest is paid (on what amount, at which moment, how it is rounded).
-- The selling price of an item by quantity.
+- The selling price of an item by quantity. The shop of the original could not be driven from a script: it has the buttons Update, Inventory and Done, the Inventory button opens a list of what the player has, but buying and selling take the mouse, which did not reach the game under Xvfb. SCORCH buys items back at four fifths of their price (`SELL_RATE`), as its own value.
+- Whether the Baby Missile should run out. The shop of the original shows a new player with 99 Baby Missiles and sells more at $400 for 10; in SCORCH there is no end of them.
 - The shape of the terrain at different values of Bumpiness and Slope, and how fast dirt falls.
 - How exactly Rollers, the MIRV and the dirt weapons behave. SCORCH has them and the riot bombs by the descriptions of the manual, with values of our own where the manual has none: how fast and how far a roller rolls and how much of a hill it climbs (the `ROLLER_` values), how far the warheads of a MIRV spread (`MIRV_SPREAD`), what a MIRV does when it hits something before it splits (explodes as one warhead), how much a buried tank is hurt when it fires, and whether a riot bomb really does no damage at all.
 
