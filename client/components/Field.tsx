@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 
 import { FieldState, PlayerInfo, ShotState, SHOTS_INTERVAL } from "../../shared/protocol";
 import { TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "../../shared/sim/field";
+import { findWeapon, WeaponKind } from "../../shared/weapons";
 import { playerColor } from "../colors";
 import { Bubbles } from "../hooks/useBubbles";
 
@@ -15,7 +16,7 @@ export interface Action {
   previous: ShotState[];
   /** When the latest ones were told, on the clock of performance.now(). */
   at: number;
-  explosions: { x: number; y: number; radius: number; at: number }[];
+  explosions: { x: number; y: number; radius: number; weapon: string; at: number }[];
 }
 
 export const noAction = (): Action => ({ shots: [], previous: [], at: 0, explosions: [] });
@@ -240,8 +241,17 @@ function drawBubbles(context: CanvasRenderingContext2D, field: FieldState, bubbl
   context.textBaseline = "alphabetic";
 }
 
-/** How long an explosion is shown, in milliseconds. */
-const EXPLOSION_TIME = 500;
+/** How long an explosion is shown, in milliseconds: the bigger it is, the longer. */
+const explosionTime = (radius: number) => 400 + radius * 5;
+/** The colours of what a weapon does when it goes off, from the middle outwards. */
+const EXPLOSION_COLORS: Record<WeaponKind, [string, string, string]> = {
+  blast: ["#fff", "#ffe066", "#f0562a"],
+  mirv: ["#fff", "#ffe066", "#f0562a"],
+  roller: ["#fff", "#ffe066", "#f0562a"],
+  dirt: ["#b98a52", "#a3743f", "#8a5f31"],
+  riot: ["#fff", "#bfe6ff", "#5aa9e6"],
+  tracer: ["#fff", "#fff", "#fff"]
+};
 /** How many of the latest places of a projectile make its tail. */
 const TAIL_LENGTH = 14;
 
@@ -283,19 +293,21 @@ function drawAction(
     context.globalAlpha = 1;
     context.fillStyle = "#fff";
     context.beginPath();
-    context.arc(shot.x, shot.y, 3, 0, 2 * Math.PI);
+    // A tracer is only a light: smaller than what does harm
+    context.arc(shot.x, shot.y, shot.weapon === "tracer" ? 1.5 : 3, 0, 2 * Math.PI);
     context.fill();
   }
 
-  action.explosions = action.explosions.filter((explosion) => now - explosion.at < EXPLOSION_TIME);
+  action.explosions = action.explosions.filter((explosion) => now - explosion.at < explosionTime(explosion.radius));
   for (const explosion of action.explosions) {
     // The ball of fire grows fast to its full size and then fades
-    const age = (now - explosion.at) / EXPLOSION_TIME;
-    const radius = explosion.radius * Math.min(1, age * 4);
+    const age = (now - explosion.at) / explosionTime(explosion.radius);
+    const radius = Math.max(1, explosion.radius * Math.min(1, age * 4));
+    const colors = EXPLOSION_COLORS[findWeapon(explosion.weapon)?.kind ?? "blast"];
     const fire = context.createRadialGradient(explosion.x, explosion.y, 0, explosion.x, explosion.y, radius);
-    fire.addColorStop(0, "#fff");
-    fire.addColorStop(0.4, "#ffe066");
-    fire.addColorStop(1, "#f0562a");
+    fire.addColorStop(0, colors[0]);
+    fire.addColorStop(0.4, colors[1]);
+    fire.addColorStop(1, colors[2]);
     context.globalAlpha = 1 - age * age;
     context.fillStyle = fire;
     context.beginPath();

@@ -233,6 +233,15 @@ Measured with Trace Paths on and no wind: the trace of each shot was read from a
 
 SCORCH takes 640x480 as its reference: a pixel of the original is two pixels of the 1280 wide playing field, and a shot at full power and 45 degrees flies 3.125 widths of the field. How long a step of the original takes was not measured, because it depends on the Firing Delay setting and on the speed of the computer; SCORCH chooses it so that a shot across the whole field at 45 degrees is in the air for three seconds (`shared/sim/shots.ts`).
 
+### Wind
+
+Measured with shots straight up (angle 90) at powers of 250–500, Trace Paths on, in two games with winds of 97 and 120 (nine shots; the fit was within a pixel):
+
+- The wind is a constant push sideways on everything in the air: an acceleration, like gravity turned on its side. The trace of a shot straight up is a parabola lying on its side.
+- At 640x480 the push is **0.0005 pixels a step squared for each unit of wind**. A wind of 400 pushes sideways as hard as gravity (0.2) pulls down, and the default Max. Wind of 200 half as hard.
+- The game shows the wind in the top right corner as an arrow and a number, e.g. `◀ Wind: 97`.
+- Not measured: how the wind of a round is drawn (SCORCH draws it evenly from none to Max. Wind, either way), how much Changing Wind changes it, and whether the push grows with the resolution as the speed of a shot does (SCORCH scales it with the field, as it does gravity).
+
 ### Damage
 
 Measured with Baby Missiles and Tanks Fall off, reading the energy of a tank from the status bar on its turn (Max is ten times the energy).
@@ -244,11 +253,17 @@ Measured with Baby Missiles and Tanks Fall off, reading the energy of a tank fro
 
 SCORCH uses the simplest rule that fits all of these (`shared/sim/shots.ts`): an explosion at the body of a tank takes all of its energy, and the damage falls evenly with the distance from the body to nothing a blast radius away. The shape of the fall is not measured: for the two hits beside a tank the energy is known but the distance is not, because the place of the explosion could not be read accurately enough.
 
+A later try to get the distance, with shots a degree off straight up (they come down a few pixels from the tank that fires them, with no wind), did not settle it. One clean hit took 37 of the energy with the middle of the crater about 7 pixels from the middle of the tank, which is less than the rule above gives (about 80) and close to a damage that falls evenly with the distance from the middle of the tank (33). Other hits did not fit either rule: the tanks stood on slopes and peaks, the shots fell past them into earlier craters, and Tanks Fall off did not seem to keep a tank from coming down. Level ground would make this measurable, but neither Flatten Peaks nor Bumpiness and Slope at 0 gave any.
+
 ### Scoring (first finding)
 
 With the Standard scoring and no cash at start, the rankings after a round that a tank ended by destroying itself were: the survivor one win and $5,000, the one that destroyed itself no wins and $-1,500. So surviving a round is worth money, destroying oneself costs, and the money of a player can be negative.
 
 A second try, with three and four players, got nothing: the keys of the script closed the rankings before the screenshot. The rankings stay on the screen until a key is pressed, so a measurement must stop pressing keys when the status bar cannot be read any more.
+
+The same result came again in two more games of two players: $5,000 and one win for the survivor, $-1,500 for the one who destroyed itself. What a player gets for damaging or destroying another tank is still not measured: the aimed shots it needs keep ending in mountains.
+
+SCORCH uses the two measured amounts and its own for the rest (`shared/economy.ts`): $20 for each point of energy taken from another tank, $2,000 more for destroying it, and $15 off for each point taken from one's own tank, which makes the measured $1,500 for a whole tank.
 
 ## To be measured
 
@@ -256,14 +271,14 @@ The manual does not give these, and the simulation needs them. They are measured
 
 **Before phase 1**
 
-- How much a unit of wind bends a trajectory. (The first try got a wind of 8 and shots into a mountain: it needs a strong wind and open ground.)
+- How the wind of a round is drawn, and how Changing Wind changes it. (How hard the wind pushes is measured: see "Wind".)
 - The damage of an explosion by the distance from the tank, for each weapon of phase 1. The energy before and after a hit can be read; what is missing is a good enough place for the explosion. The dotted trace ends several pixels short, and a circle fitted to the crater is thrown off by the traces drawn over the dirt. Next: traces off, and the circle fitted only to the dirt that went.
 - Fall damage by height.
 - The points of the Standard scoring: for damage, for a kill, for surviving, and the penalty for hitting oneself. This also decides the default of Cash at Start in PLAN.md.
 - How interest is paid (on what amount, at which moment, how it is rounded).
 - The selling price of an item by quantity.
 - The shape of the terrain at different values of Bumpiness and Slope, and how fast dirt falls.
-- How exactly Rollers, the MIRV and the dirt weapons behave.
+- How exactly Rollers, the MIRV and the dirt weapons behave. SCORCH has them and the riot bombs by the descriptions of the manual, with values of our own where the manual has none: how fast and how far a roller rolls and how much of a hill it climbs (the `ROLLER_` values), how far the warheads of a MIRV spread (`MIRV_SPREAD`), what a MIRV does when it hits something before it splits (explodes as one warhead), how much a buried tank is hurt when it fires, and whether a riot bomb really does no damage at all.
 
 **Before phase 4**
 

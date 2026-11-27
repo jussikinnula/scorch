@@ -99,6 +99,38 @@ export function carve(terrain: Terrain, x: number, y: number, r: number) {
   }
 }
 
+/** Adds dirt to a column from one y (inclusive) to another (exclusive), joining it with what it touches. */
+function fillColumn(column: number[], from: number, to: number) {
+  const filled: number[] = [];
+  let [top, bottom] = [from, to];
+  let placed = false;
+  for (let i = 0; i + 1 < column.length; i += 2) {
+    const [runTop, runBottom] = [column[i], column[i + 1]];
+    if (runBottom < top) filled.push(runTop, runBottom);
+    else if (runTop > bottom) {
+      if (!placed) filled.push(top, bottom);
+      placed = true;
+      filled.push(runTop, runBottom);
+    } else {
+      top = Math.min(top, runTop);
+      bottom = Math.max(bottom, runBottom);
+    }
+  }
+  if (!placed) filled.push(top, bottom);
+  return filled;
+}
+
+/** Makes a ball of dirt. It hangs where it was made until the terrain is settled. */
+export function fill(terrain: Terrain, x: number, y: number, r: number, height: number) {
+  for (let dx = -r; dx <= r; dx++) {
+    const column = terrain[x + dx];
+    if (!column) continue;
+    const half = Math.floor(Math.sqrt(r * r - dx * dx));
+    const [from, to] = [Math.max(0, y - half), Math.min(height, y + half + 1)];
+    if (from < to) terrain[x + dx] = fillColumn(column, from, to);
+  }
+}
+
 /** Lets the dirt fall: after it each column is one pile on the bottom of the field, of all its dirt. */
 export function settle(terrain: Terrain, height: number) {
   terrain.forEach((column, x) => {
@@ -112,5 +144,6 @@ export function settle(terrain: Terrain, height: number) {
 /** Makes a change to the terrain. */
 export function applyTerrainOp(terrain: Terrain, op: TerrainOp, height: number) {
   if (op.op === "carve") carve(terrain, op.x, op.y, op.r);
+  else if (op.op === "fill") fill(terrain, op.x, op.y, op.r, height);
   else settle(terrain, height);
 }

@@ -1,9 +1,23 @@
 import React, { useEffect, useRef, useState } from "react";
 
-import { FieldState, MAX_PLAYERS, MAX_ROUNDS, MIN_PLAYERS, MIN_ROUNDS, RoomState } from "../../shared/protocol";
+import {
+  FieldState,
+  MAX_ARMS_LEVEL,
+  MAX_CASH,
+  MAX_INTEREST,
+  MAX_PLAYERS,
+  MAX_ROUNDS,
+  MAX_WIND,
+  MIN_PLAYERS,
+  MIN_ROUNDS,
+  RoomState,
+  WIND_STEP
+} from "../../shared/protocol";
 import Field, { noAction } from "../components/Field";
 import PlayerList from "../components/PlayerList";
 import QrCode from "../components/QrCode";
+import Wind from "../components/Wind";
+import { formatMoney } from "../money";
 import Standings, { ranked } from "../components/Standings";
 import TestPhoneButton from "../components/TestPhoneButton";
 import { Api, useApiMessages } from "../hooks/useApiConnection";
@@ -12,6 +26,9 @@ import { useBubbles } from "../hooks/useBubbles";
 import { useCountdown } from "../hooks/useCountdown";
 import { toUrl } from "../routes";
 import { loadHostKey, saveHostKey } from "../session";
+
+/** The amounts of money the screen offers for the start of a game. */
+const CASH_STEPS = [0, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000];
 
 interface Props {
   api: Api;
@@ -48,6 +65,7 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
   // changes these, so that several quick clicks are not all counted from the same old settings
   const wanted = useRef<RoomState["settings"] | null>(null);
   const turnTime = useCountdown(state?.turn ? state.turn.time : null, state);
+  const shopTime = useCountdown(state?.shop ? state.shop.time : null, state);
 
   const stop = (reason: Problem) => {
     stopped.current = true;
@@ -80,8 +98,8 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
       action.current.at = performance.now();
       setFlying(message.shots.length);
     } else if (message.type === "explode") {
-      const { x, y, radius } = message;
-      action.current.explosions.push({ x, y, radius, at: performance.now() });
+      const { x, y, radius, weapon } = message;
+      action.current.explosions.push({ x, y, radius, weapon, at: performance.now() });
     } else if (message.type === "terrain") {
       const { changes, tanks } = message;
       setField((current) => {
@@ -140,6 +158,11 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
   };
   const setMaxPlayers = (by: number) => change({ maxPlayers: (wanted.current ?? settings).maxPlayers + by });
   const setRounds = (by: number) => change({ rounds: (wanted.current ?? settings).rounds + by });
+  const setCash = (by: 1 | -1) => {
+    const now = CASH_STEPS.indexOf((wanted.current ?? settings).cash);
+    change({ cash: CASH_STEPS[Math.min(CASH_STEPS.length - 1, Math.max(0, now + by))] });
+  };
+  const setMaxWind = (by: number) => change({ maxWind: (wanted.current ?? settings).maxWind + by });
 
   if (phase === "finished") {
     const [winner, second] = ranked(players);
@@ -153,6 +176,27 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
         <button className="button button--primary" onClick={() => api.send({ type: "lobby" })}>
           New game
         </button>
+      </section>
+    );
+  }
+
+  if (phase === "shop" && state.shop) {
+    const ready = new Set(state.shop.ready);
+    return (
+      <section className="view results">
+        <h2>The shop is open</h2>
+        <p className="note" role="status">
+          Round {state.round + 1} of {settings.rounds} starts when everyone is ready
+          {shopTime !== null && shopTime > 0 && `, or in ${shopTime} s`}. {ready.size} of {players.length} ready.
+        </p>
+        <Standings players={players} />
+        {joinUrl && !full && (
+          <div className="shop-join">
+            <QrCode value={joinUrl} label="QR code for joining the game" />
+            <p className="screen__hint">New players can join now: scan with the camera of your phone</p>
+            {playerTesting && <TestPhoneButton joinUrl={joinUrl} />}
+          </div>
+        )}
       </section>
     );
   }
@@ -190,6 +234,7 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
             );
           })}
         </ul>
+        <Wind wind={state.wind} className="game__wind" />
         {state.turn && !result && (
           <p className="game__turn" role="status" aria-label="Turn">
             {players.find((player) => player.id === state.turn?.player)?.name}
@@ -297,6 +342,86 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
               aria-label="More rounds"
               onClick={() => setRounds(1)}
               disabled={settings.rounds >= MAX_ROUNDS}
+            >
+              +
+            </button>
+          </div>
+          <div className="stepper">
+            <span id="max-wind">Wind at most</span>
+            <button
+              className="button button--small"
+              aria-label="Less wind"
+              onClick={() => setMaxWind(-WIND_STEP)}
+              disabled={settings.maxWind <= 0}
+            >
+              −
+            </button>
+            <output aria-labelledby="max-wind">{settings.maxWind === 0 ? "None" : settings.maxWind}</output>
+            <button
+              className="button button--small"
+              aria-label="More wind"
+              onClick={() => setMaxWind(WIND_STEP)}
+              disabled={settings.maxWind >= MAX_WIND}
+            >
+              +
+            </button>
+          </div>
+          <div className="stepper">
+            <span id="cash">Cash at start</span>
+            <button
+              className="button button--small"
+              aria-label="Less cash"
+              onClick={() => setCash(-1)}
+              disabled={settings.cash <= 0}
+            >
+              −
+            </button>
+            <output aria-labelledby="cash">{formatMoney(settings.cash)}</output>
+            <button
+              className="button button--small"
+              aria-label="More cash"
+              onClick={() => setCash(1)}
+              disabled={settings.cash >= MAX_CASH}
+            >
+              +
+            </button>
+          </div>
+          <div className="stepper">
+            <span id="interest">Interest</span>
+            <button
+              className="button button--small"
+              aria-label="Less interest"
+              onClick={() => change({ interest: (wanted.current ?? settings).interest - 1 })}
+              disabled={settings.interest <= 0}
+            >
+              −
+            </button>
+            <output aria-labelledby="interest">{settings.interest} %</output>
+            <button
+              className="button button--small"
+              aria-label="More interest"
+              onClick={() => change({ interest: (wanted.current ?? settings).interest + 1 })}
+              disabled={settings.interest >= MAX_INTEREST}
+            >
+              +
+            </button>
+          </div>
+          <div className="stepper">
+            <span id="arms-level">Arms level</span>
+            <button
+              className="button button--small"
+              aria-label="Lower arms level"
+              onClick={() => change({ armsLevel: (wanted.current ?? settings).armsLevel - 1 })}
+              disabled={settings.armsLevel <= 0}
+            >
+              −
+            </button>
+            <output aria-labelledby="arms-level">{settings.armsLevel}</output>
+            <button
+              className="button button--small"
+              aria-label="Higher arms level"
+              onClick={() => change({ armsLevel: (wanted.current ?? settings).armsLevel + 1 })}
+              disabled={settings.armsLevel >= MAX_ARMS_LEVEL}
             >
               +
             </button>

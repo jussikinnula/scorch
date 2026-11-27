@@ -3,6 +3,9 @@ import { randomBytes, randomInt } from "crypto";
 import {
   ClientMessage,
   DEFAULT_MAX_PLAYERS,
+  DEFAULT_INTEREST,
+  DEFAULT_MAX_WIND,
+  MAX_ARMS_LEVEL,
   DEFAULT_ROUNDS,
   ErrorCode,
   FieldState,
@@ -10,7 +13,6 @@ import {
   MAX_NAME_LENGTH,
   MIN_PLAYERS,
   PlayerInfo,
-  RELOAD_TIME,
   ROUND_PAUSE,
   SAY_INTERVAL,
   RoomMode,
@@ -24,6 +26,8 @@ import {
 import { launch, Shot, stepShots, STEPS_PER_SECOND } from "../shared/sim/shots";
 import { createField, removeTank } from "../shared/sim/field";
 import { createRandom } from "../shared/sim/random";
+import { damageReward, isForSale, ROUND_WIN, SHOP_TIME, withInterest } from "../shared/economy";
+import { DEFAULT_WEAPON, findWeapon, MAX_ITEMS, starterKit, WEAPONS } from "../shared/weapons";
 
 /** How long a room is kept when its screen is away, in milliseconds. */
 export const ROOM_TIMEOUT = 5 * 60 * 1000;
@@ -41,6 +45,12 @@ export interface RoomsOptions {
   roomTimeout?: number;
   /** The seed of what is random in the games, for tests. Without it each game is different. */
   seed?: number;
+  /** The strongest wind of a new room, for tests that need a shot to land where it is aimed. */
+  maxWind?: number;
+  /** Whether everyone starts a game with a bundle of each weapon, for tests that fire them. Otherwise weapons are bought. */
+  kit?: boolean;
+  /** How long the shop is open between two rounds at most, in milliseconds. 0: there is no shop, for tests of other things. */
+  shopTime?: number;
 }
 
 interface Player<Member> {
@@ -56,6 +66,12 @@ interface Player<Member> {
   reloadedAt: number;
   /** How many rounds of the game the player has won. */
   wins: number;
+  /** The money of the player in dollars. It can be below zero. */
+  money: number;
+  /** How many the player has of each weapon, by its id. The weapons there is no end of are not here. */
+  weapons: Record<string, number>;
+  /** The id of the weapon the tank fires next. */
+  weapon: string;
 }
 
 interface Room<Member> {
@@ -78,6 +94,10 @@ interface Room<Member> {
   round: number;
   /** Starts the next round, when a round has ended and its result is being shown. */
   nextRoundTimer: ReturnType<typeof setTimeout> | null;
+  /** While the shop is open: the ids of the players who are ready, when it closes at the latest, and the timer that closes it. */
+  ready: Set<number>;
+  shopEndsAt: number;
+  shopTimer: ReturnType<typeof setTimeout> | null;
   /** In the classic mode: the ids of the players in the order of their turns in this round. */
   order: number[];
   /** In the classic mode: the id of the player whose turn it is, null when it is nobody's. */
@@ -123,6 +143,9 @@ class Rooms<Member> {
   private readonly tokenPeriod: number;
   private readonly roomTimeout: number;
   private readonly seed: number | undefined;
+  private readonly maxWind: number;
+  private readonly kit: boolean;
+  private readonly shopTime: number;
   /** Moves the projectiles of all the rooms, while there are any in the air. */
   private ticker: ReturnType<typeof setInterval> | null = null;
 
@@ -138,6 +161,9 @@ class Rooms<Member> {
     this.tokenPeriod = options.tokenPeriod ?? JOIN_TOKEN_PERIOD;
     this.roomTimeout = options.roomTimeout ?? ROOM_TIMEOUT;
     this.seed = options.seed;
+    this.maxWind = options.maxWind ?? DEFAULT_MAX_WIND;
+    this.kit = options.kit ?? false;
+    this.shopTime = options.shopTime ?? SHOP_TIME;
   }
 
   /** How many rooms there are. */
@@ -181,6 +207,15 @@ class Rooms<Member> {
       case "aim":
         this.aim(member, message.angle, message.power);
         return true;
+      case "weapon":
+        this.chooseWeapon(member, message.weapon);
+        return true;
+      case "buy":
+        this.buy(member, message.weapon);
+        return true;
+      case "ready":
+        this.ready(member);
+        return true;
       case "fire":
         this.fire(member);
         return true;
@@ -206,6 +241,8 @@ class Rooms<Member> {
       room.removeTimer = setTimeout(() => this.remove(room), this.roomTimeout);
     }
     this.announce(room);
+    // The shop does not wait for a player who is away
+    this.closeShopIfReady(room);
   }
 
   /** Removes all the rooms and stops their timers, when the server is closed. */
@@ -225,7 +262,15 @@ class Rooms<Member> {
       hostKey: randomKey(),
       mode,
       phase: "lobby",
-      settings: { maxPlayers: DEFAULT_MAX_PLAYERS, rounds: DEFAULT_ROUNDS, turns: "classic" },
+      settings: {
+        maxPlayers: DEFAULT_MAX_PLAYERS,
+        rounds: DEFAULT_ROUNDS,
+        turns: "classic",
+        maxWind: this.maxWind,
+        cash: 0,
+        interest: DEFAULT_INTEREST,
+        armsLevel: MAX_ARMS_LEVEL
+      },
       players: [],
       screen: member,
       field: null,
@@ -242,7 +287,10 @@ class Rooms<Member> {
       previousToken: null,
       tokenChangedAt: Date.now(),
       tokenTimer: setInterval(() => this.rotateToken(room), this.tokenPeriod),
-      removeTimer: null
+      removeTimer: null,
+      ready: new Set(),
+      shopEndsAt: 0,
+      shopTimer: null
     };
     this.rooms.set(id, room);
     this.tokens.set(room.token, room);
@@ -269,8 +317,8 @@ class Rooms<Member> {
   private join(member: Member, token: string, name: string) {
     const room = this.tokens.get(token);
     if (!room) return this.refuse(member, "bad-token", "join");
-    // Nobody new comes in while the game is going on
-    if (room.phase !== "lobby") return this.refuse(member, "wrong-phase", "join");
+    // Nobody new comes in while a round is going on: only before the game, and between two rounds while the shop is open
+    if (room.phase !== "lobby" && room.phase !== "shop") return this.refuse(member, "wrong-phase", "join");
     if (room.players.length >= room.settings.maxPlayers) return this.refuse(member, "room-full", "join");
     this.disconnect(member);
 
@@ -285,13 +333,18 @@ class Rooms<Member> {
       member,
       saidAt: -Infinity,
       reloadedAt: 0,
-      wins: 0
+      wins: 0,
+      // One who comes in the middle of a game starts as everyone did
+      money: room.phase === "shop" ? room.settings.cash : 0,
+      weapons: {},
+      weapon: DEFAULT_WEAPON
     };
     room.players.push(player);
     room.players.sort((a, b) => a.id - b.id);
     this.sessions.set(member, { room, player });
 
     this.send(member, { type: "joined", room: room.id, id, playerKey: player.key });
+    if (room.phase === "shop") this.sendWeapons(player);
     this.startIfFull(room);
     this.announce(room);
     this.sendField(room);
@@ -324,6 +377,7 @@ class Rooms<Member> {
     this.send(member, { type: "joined", room: room.id, id: player.id, playerKey: player.key });
     this.announce(room);
     this.sendOwnAim(room, player);
+    if (room.phase !== "lobby") this.sendWeapons(player);
   }
 
   private leave(member: Member) {
@@ -340,7 +394,8 @@ class Rooms<Member> {
     if (room.phase !== "lobby") return this.refuse(member, "wrong-phase", "settings");
     if (settings.maxPlayers < room.players.length) return this.refuse(member, "not-allowed", "settings");
 
-    room.settings = { maxPlayers: settings.maxPlayers, rounds: settings.rounds, turns: settings.turns };
+    const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel } = settings;
+    room.settings = { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel };
     this.startIfFull(room);
     this.announce(room);
     this.sendField(room);
@@ -366,9 +421,7 @@ class Rooms<Member> {
     if (room.phase !== "lobby") return this.refuse(member, "wrong-phase", "start");
     if (room.players.length < MIN_PLAYERS) return this.refuse(member, "not-allowed", "start");
 
-    this.begin(room);
-    this.announce(room);
-    this.sendField(room);
+    this.newGame(room);
   }
 
   /** After a game has finished: back to the lobby, where a new game can be started and new players can join. */
@@ -402,6 +455,41 @@ class Rooms<Member> {
     if (room.screen) this.send(room.screen, { type: "aim", id: tank.id, angle: tank.angle, power: tank.power });
   }
 
+  /** Whether a player has a weapon to fire: at least one of it, or there is no end of it. */
+  private hasWeapon(player: Player<Member>, id: string) {
+    const weapon = findWeapon(id);
+    return weapon !== undefined && (!Number.isFinite(weapon.bundle) || player.weapons[id] > 0);
+  }
+
+  private sendWeapons(player: Player<Member>) {
+    if (player.member) this.send(player.member, { type: "weapons", selected: player.weapon, counts: player.weapons });
+  }
+
+  private chooseWeapon(member: Member, id: string) {
+    const session = this.sessions.get(member);
+    if (!session?.player) return this.refuse(member, "not-allowed", "weapon");
+    const { room, player } = session;
+    if (room.phase !== "playing") return this.refuse(member, "wrong-phase", "weapon");
+    if (this.hasWeapon(player, id)) player.weapon = id;
+    else this.refuse(member, "no-weapon", "weapon");
+    // Also after a refusal: the controller shows what the tank really has
+    this.sendWeapons(player);
+  }
+
+  /** Takes the weapon a tank fires from what the player has. When it was the last one, the tank goes back to the Baby Missile. */
+  private useWeapon(player: Player<Member>) {
+    const weapon = findWeapon(player.weapon) ?? findWeapon(DEFAULT_WEAPON)!;
+    if (Number.isFinite(weapon.bundle)) {
+      player.weapons[weapon.id] -= 1;
+      if (player.weapons[weapon.id] <= 0) {
+        delete player.weapons[weapon.id];
+        player.weapon = DEFAULT_WEAPON;
+      }
+    }
+    this.sendWeapons(player);
+    return weapon;
+  }
+
   private fire(member: Member) {
     const session = this.sessions.get(member);
     if (!session?.player) return this.refuse(member, "not-allowed", "fire");
@@ -418,13 +506,15 @@ class Rooms<Member> {
       room.turnEndsAt = Date.now();
       if (room.turnTimer) clearTimeout(room.turnTimer);
       room.turnTimer = null;
-      room.shots.push(launch(tank, room.nextShot++));
+      room.shots.push(launch(tank, room.nextShot++, this.useWeapon(player).id));
       this.announce(room);
     } else {
       if (Date.now() < player.reloadedAt) return this.refuse(member, "reloading", "fire");
-      player.reloadedAt = Date.now() + RELOAD_TIME;
-      room.shots.push(launch(tank, room.nextShot++));
-      this.send(member, { type: "reload", time: RELOAD_TIME });
+      // The bigger the weapon, the longer the tank reloads after it
+      const weapon = this.useWeapon(player);
+      player.reloadedAt = Date.now() + weapon.reload * 1000;
+      room.shots.push(launch(tank, room.nextShot++, weapon.id));
+      this.send(member, { type: "reload", time: weapon.reload * 1000 });
     }
     this.startTicker();
   }
@@ -440,21 +530,97 @@ class Rooms<Member> {
 
     this.setTurn(room, null);
     const winner = room.players.find((player) => player.id === left[0]?.id);
-    if (winner) winner.wins += 1;
+    if (winner) {
+      winner.wins += 1;
+      winner.money += ROUND_WIN;
+    }
     const message: ServerMessage = { type: "roundOver", round: room.round, winner: winner?.id ?? null };
     if (room.screen) this.send(room.screen, message);
     for (const player of room.players) if (player.member) this.send(player.member, message);
-    // The wins of the players are in the state of the room
+    // The wins and the money of the players are in the state of the room
     this.announce(room);
 
     room.nextRoundTimer = setTimeout(() => {
       room.nextRoundTimer = null;
       // After the last round the game is finished: the final results stay on the screen
-      if (room.round >= room.settings.rounds) room.phase = "finished";
-      else this.begin(room);
-      this.announce(room);
-      this.sendField(room);
+      if (room.round >= room.settings.rounds) {
+        room.phase = "finished";
+        this.announce(room);
+        return;
+      }
+      // Money that was not spent earns interest between the rounds
+      for (const player of room.players) player.money = withInterest(player.money, room.settings.interest);
+      this.nextRound(room);
     }, ROUND_PAUSE);
+  }
+
+  /** A new game starts: everyone gets the money of the start, and no weapons but the one everyone always has. */
+  private newGame(room: Room<Member>) {
+    for (const player of room.players) {
+      player.money = room.settings.cash;
+      player.weapons = this.kit ? starterKit() : {};
+      player.weapon = DEFAULT_WEAPON;
+    }
+    this.nextRound(room);
+  }
+
+  /** Before each round the shop opens, if anyone has the money to buy anything. Otherwise the round starts at once. */
+  private nextRound(room: Room<Member>) {
+    const prices = WEAPONS.filter((weapon) => isForSale(weapon, room.settings.armsLevel)).map((weapon) => weapon.price);
+    const cheapest = Math.min(...prices);
+    if (this.shopTime > 0 && room.players.some((player) => player.money >= cheapest)) {
+      room.phase = "shop";
+      room.ready = new Set();
+      room.shopEndsAt = Date.now() + this.shopTime;
+      room.shopTimer = setTimeout(() => this.closeShop(room), this.shopTime);
+      for (const player of room.players) this.sendWeapons(player);
+      this.announce(room);
+    } else {
+      this.closeShop(room);
+    }
+  }
+
+  /** The shop closes and the next round starts. */
+  private closeShop(room: Room<Member>) {
+    if (room.shopTimer) clearTimeout(room.shopTimer);
+    room.shopTimer = null;
+    this.begin(room);
+    this.announce(room);
+    this.sendField(room);
+  }
+
+  /** The shop closes when every player who is connected is ready. */
+  private closeShopIfReady(room: Room<Member>) {
+    if (room.phase !== "shop") return;
+    const present = room.players.filter((player) => player.member);
+    if (present.length > 0 && present.every((player) => room.ready.has(player.id))) this.closeShop(room);
+  }
+
+  private buy(member: Member, id: string) {
+    const session = this.sessions.get(member);
+    if (!session?.player) return this.refuse(member, "not-allowed", "buy");
+    const { room, player } = session;
+    if (room.phase !== "shop") return this.refuse(member, "wrong-phase", "buy");
+    const weapon = findWeapon(id);
+    if (!weapon || !isForSale(weapon, room.settings.armsLevel)) return this.refuse(member, "no-weapon", "buy");
+    if (player.money < weapon.price) return this.refuse(member, "no-money", "buy");
+    const count = (player.weapons[id] ?? 0) + weapon.bundle;
+    if (count > MAX_ITEMS) return this.refuse(member, "too-many", "buy");
+
+    player.money -= weapon.price;
+    player.weapons[id] = count;
+    this.sendWeapons(player);
+    this.announce(room);
+  }
+
+  private ready(member: Member) {
+    const session = this.sessions.get(member);
+    if (!session?.player) return this.refuse(member, "not-allowed", "ready");
+    const { room, player } = session;
+    if (room.phase !== "shop") return this.refuse(member, "wrong-phase", "ready");
+    room.ready.add(player.id);
+    this.announce(room);
+    this.closeShopIfReady(room);
   }
 
   /** Gives the turn to a player, who has a limited time to fire. Null takes the turn from everyone. */
@@ -495,26 +661,40 @@ class Rooms<Member> {
     for (const room of this.rooms.values()) {
       if (!room.field || room.shots.length === 0) continue;
 
+      let paid = false;
       for (let step = 0; step < (STEPS_PER_SECOND * SHOTS_INTERVAL) / 1000; step++) {
-        const { shots, events } = stepShots(room.field, room.shots);
+        const { shots, events } = stepShots(room.field, room.shots, () => room.nextShot++);
         room.shots = shots;
         for (const event of events) {
           if (event.event === "damage") {
+            // The one who fired is paid for the damage to others, and pays for the damage to itself
+            const shooter = room.players.find((player) => player.id === event.by);
+            if (shooter) shooter.money += damageReward(event.by === event.id, event.amount, event.energy === 0);
+            paid = true;
             // The player is told the energy of its own tank; the screen gets it with the tanks below
             const hit = room.players.find((player) => player.id === event.id);
             if (hit?.member) this.send(hit.member, { type: "energy", energy: event.energy });
           } else if (!room.screen) {
             continue;
           } else if (event.event === "explode") {
-            this.send(room.screen, { type: "explode", x: event.x, y: event.y, radius: event.radius });
+            const { x, y, radius, weapon } = event;
+            this.send(room.screen, { type: "explode", x, y, radius, weapon });
           } else {
             this.send(room.screen, { type: "terrain", changes: event.ops, tanks: room.field.tanks });
           }
         }
       }
+      // The money of the players is in the state of the room
+      if (paid) this.announce(room);
       // Also when the last one has gone: an empty list tells that nothing is in the air any more
       if (room.screen) {
-        const shots = room.shots.map(({ id, owner, x, y }) => ({ id, owner, x: Math.round(x), y: Math.round(y) }));
+        const shots = room.shots.map(({ id, owner, weapon, x, y }) => ({
+          id,
+          owner,
+          weapon,
+          x: Math.round(x),
+          y: Math.round(y)
+        }));
         this.send(room.screen, { type: "shots", shots });
       }
       flying ||= room.shots.length > 0;
@@ -569,11 +749,12 @@ class Rooms<Member> {
     if (room.turn === player.id && !room.turnFired) this.passTurn(room);
     else this.announce(room);
     this.sendField(room);
+    this.closeShopIfReady(room);
   }
 
   /** The game starts by itself when the room is full. */
   private startIfFull(room: Room<Member>) {
-    if (room.phase === "lobby" && room.players.length >= room.settings.maxPlayers) this.begin(room);
+    if (room.phase === "lobby" && room.players.length >= room.settings.maxPlayers) this.newGame(room);
   }
 
   /** Starts the game: makes the playing field and tells each player the aim of its tank. */
@@ -599,9 +780,13 @@ class Rooms<Member> {
     }
     room.field = createField(
       room.players.map((player) => player.id),
-      random
+      random,
+      room.settings.maxWind
     );
-    for (const player of room.players) this.sendOwnAim(room, player);
+    for (const player of room.players) {
+      this.sendOwnAim(room, player);
+      this.sendWeapons(player);
+    }
   }
 
   /** Sends the playing field to the screen, which shows it. Nothing is sent before the game has started. */
@@ -611,7 +796,8 @@ class Rooms<Member> {
 
   /**
    * Tells a player what only the server knows about its tank, when the player cannot know it, at
-   * the start of a round and after returning: the aim, how long the tank still reloads, and its energy.
+   * the start of a round and after returning: the aim, how long the tank still reloads, its energy
+   * and its weapons.
    */
   private sendOwnAim(room: Room<Member>, player: Player<Member>) {
     const tank = room.field?.tanks.find((candidate) => candidate.id === player.id);
@@ -663,11 +849,12 @@ class Rooms<Member> {
   }
 
   private state(room: Room<Member>): RoomState {
-    const players: PlayerInfo[] = room.players.map(({ id, name, member, wins }) => ({
+    const players: PlayerInfo[] = room.players.map(({ id, name, member, wins, money }) => ({
       id,
       name,
       connected: member !== null,
-      wins
+      wins,
+      money
     }));
     return {
       room: room.id,
@@ -677,7 +864,9 @@ class Rooms<Member> {
       players,
       screen: room.screen !== null,
       round: room.round,
-      turn: room.turn === null ? null : { player: room.turn, time: Math.max(0, room.turnEndsAt - Date.now()) }
+      turn: room.turn === null ? null : { player: room.turn, time: Math.max(0, room.turnEndsAt - Date.now()) },
+      wind: room.phase === "playing" && room.field ? room.field.wind : 0,
+      shop: room.phase === "shop" ? { time: Math.max(0, room.shopEndsAt - Date.now()), ready: [...room.ready] } : null
     };
   }
 
@@ -693,6 +882,7 @@ class Rooms<Member> {
     if (room.removeTimer) clearTimeout(room.removeTimer);
     if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
     if (room.turnTimer) clearTimeout(room.turnTimer);
+    if (room.shopTimer) clearTimeout(room.shopTimer);
     this.tokens.delete(room.token);
     if (room.previousToken) this.tokens.delete(room.previousToken);
     this.rooms.delete(room.id);

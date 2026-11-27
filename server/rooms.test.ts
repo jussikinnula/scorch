@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_MAX_PLAYERS, MAX_NAME_LENGTH, RoomState, ServerMessage } from "../shared/protocol";
-import Rooms, { JOIN_TOKEN_LENGTH, ROOM_ID_LENGTH } from "./rooms";
+import Rooms, { JOIN_TOKEN_LENGTH, ROOM_ID_LENGTH, RoomsOptions } from "./rooms";
 
 /** A connection of a test: it collects what the rooms send to it. */
 interface Member {
@@ -42,13 +42,17 @@ describe("Rooms", () => {
     return controller;
   };
 
-  beforeEach(() => {
-    vi.useFakeTimers();
-    rooms = new Rooms<Member>(
+  /** Rooms with no wind and the same terrains every time, so that a shot lands where it is aimed. */
+  const createRooms = (options: RoomsOptions) =>
+    new Rooms<Member>(
       (to, message) => to.messages.push(message),
       (who) => (who.closed = true),
-      { tokenPeriod: TOKEN_PERIOD, roomTimeout: ROOM_TIMEOUT, seed: 1 }
+      { tokenPeriod: TOKEN_PERIOD, roomTimeout: ROOM_TIMEOUT, seed: 1, maxWind: 0, ...options }
     );
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    rooms = createRooms({ kit: true, shopTime: 0 });
   });
 
   afterEach(() => {
@@ -67,11 +71,21 @@ describe("Rooms", () => {
         room: created.room,
         mode: "hotseat",
         phase: "lobby",
-        settings: { maxPlayers: DEFAULT_MAX_PLAYERS, rounds: 10, turns: "classic" },
+        settings: {
+          maxPlayers: DEFAULT_MAX_PLAYERS,
+          rounds: 10,
+          turns: "classic",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4
+        },
         players: [],
         screen: true,
         round: 0,
-        turn: null
+        turn: null,
+        wind: 0,
+        shop: null
       });
       expect(last(screen, "token")).toEqual({
         type: "token",
@@ -100,8 +114,8 @@ describe("Rooms", () => {
       });
       expect(last(bob, "joined").id).toBe(1);
       const players = [
-        { id: 0, name: "Ann", connected: true, wins: 0 },
-        { id: 1, name: "Bob", connected: true, wins: 0 }
+        { id: 0, name: "Ann", connected: true, wins: 0, money: 0 },
+        { id: 1, name: "Bob", connected: true, wins: 0, money: 0 }
       ];
       for (const who of [screen, ann, bob]) expect(state(who).players).toEqual(players);
     });
@@ -139,7 +153,10 @@ describe("Rooms", () => {
 
     it("refuses a player when the room is full: the game has started by itself", () => {
       const screen = createRoom();
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 2, rounds: 10, turns: "live" } });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 2, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       joinRoom(screen, "Ann");
       joinRoom(screen, "Bob");
       const cat = joinRoom(screen, "Cat");
@@ -217,7 +234,10 @@ describe("Rooms", () => {
 
     it("starts the game by itself when the room becomes full", () => {
       const screen = createRoom();
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 3, rounds: 10, turns: "live" } });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 3, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       joinRoom(screen, "Ann");
       joinRoom(screen, "Bob");
       expect(state(screen).phase).toBe("lobby");
@@ -229,7 +249,10 @@ describe("Rooms", () => {
       const screen = createRoom();
       joinRoom(screen, "Ann");
       joinRoom(screen, "Bob");
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 2, rounds: 10, turns: "live" } });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 2, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       expect(state(screen).phase).toBe("playing");
     });
 
@@ -239,12 +262,34 @@ describe("Rooms", () => {
       joinRoom(screen, "Bob");
       joinRoom(screen, "Cat");
 
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 5, rounds: 10, turns: "live" } });
-      expect(state(ann).settings).toEqual({ maxPlayers: 5, rounds: 10, turns: "live" });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 5, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
+      expect(state(ann).settings).toEqual({
+        maxPlayers: 5,
+        rounds: 10,
+        turns: "live",
+        maxWind: 0,
+        cash: 0,
+        interest: 5,
+        armsLevel: 4
+      });
 
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 2, rounds: 10, turns: "live" } });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 2, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       expect(errors(screen)).toEqual([{ type: "error", code: "not-allowed", re: "settings" }]);
-      expect(state(ann).settings).toEqual({ maxPlayers: 5, rounds: 10, turns: "live" });
+      expect(state(ann).settings).toEqual({
+        maxPlayers: 5,
+        rounds: 10,
+        turns: "live",
+        maxWind: 0,
+        cash: 0,
+        interest: 5,
+        armsLevel: 4
+      });
     });
 
     it("does not let the settings be changed after the game has started", () => {
@@ -252,7 +297,10 @@ describe("Rooms", () => {
       joinRoom(screen, "Ann");
       joinRoom(screen, "Bob");
       rooms.handle(screen, { type: "start" });
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 5, rounds: 10, turns: "live" } });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 5, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       expect(errors(screen)).toEqual([{ type: "error", code: "wrong-phase", re: "settings" }]);
     });
 
@@ -275,7 +323,10 @@ describe("Rooms", () => {
       for (const who of [ann, outsider]) {
         rooms.handle(who, { type: "start" });
         rooms.handle(who, { type: "kick", id: 1 });
-        rooms.handle(who, { type: "settings", settings: { maxPlayers: 2, rounds: 10, turns: "live" } });
+        rooms.handle(who, {
+          type: "settings",
+          settings: { maxPlayers: 2, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        });
         expect(errors(who)).toEqual([
           { type: "error", code: "not-allowed", re: "start" },
           { type: "error", code: "not-allowed", re: "kick" },
@@ -284,7 +335,15 @@ describe("Rooms", () => {
       }
       expect(state(screen)).toMatchObject({
         phase: "lobby",
-        settings: { maxPlayers: DEFAULT_MAX_PLAYERS, rounds: 10, turns: "classic" }
+        settings: {
+          maxPlayers: DEFAULT_MAX_PLAYERS,
+          rounds: 10,
+          turns: "classic",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4
+        }
       });
       expect(state(screen).players).toHaveLength(2);
     });
@@ -326,12 +385,12 @@ describe("Rooms", () => {
       const { room, playerKey } = last(ann, "joined");
 
       rooms.disconnect(ann);
-      expect(state(screen).players).toEqual([{ id: 0, name: "Ann", connected: false, wins: 0 }]);
+      expect(state(screen).players).toEqual([{ id: 0, name: "Ann", connected: false, wins: 0, money: 0 }]);
 
       const again = member("Ann again");
       rooms.handle(again, { type: "resume", room, playerKey });
       expect(last(again, "joined")).toEqual({ type: "joined", room, id: 0, playerKey });
-      expect(state(screen).players).toEqual([{ id: 0, name: "Ann", connected: true, wins: 0 }]);
+      expect(state(screen).players).toEqual([{ id: 0, name: "Ann", connected: true, wins: 0, money: 0 }]);
     });
 
     it("closes the old connection when a player returns on another one", () => {
@@ -346,7 +405,7 @@ describe("Rooms", () => {
 
       // The old connection going away does not take the player with it
       rooms.disconnect(ann);
-      expect(state(screen).players).toEqual([{ id: 0, name: "Ann", connected: true, wins: 0 }]);
+      expect(state(screen).players).toEqual([{ id: 0, name: "Ann", connected: true, wins: 0, money: 0 }]);
     });
 
     it("returns a device that scans the QR code again to the player it already is", () => {
@@ -364,8 +423,8 @@ describe("Rooms", () => {
       expect(last(again, "joined")).toEqual({ type: "joined", room, id: 0, playerKey });
       expect(last(again, "aim")).toMatchObject({ type: "aim", id: 0 });
       expect(state(screen).players).toEqual([
-        { id: 0, name: "Ann", connected: true, wins: 0 },
-        { id: 1, name: "Bob", connected: true, wins: 0 }
+        { id: 0, name: "Ann", connected: true, wins: 0, money: 0 },
+        { id: 1, name: "Bob", connected: true, wins: 0, money: 0 }
       ]);
     });
 
@@ -465,8 +524,8 @@ describe("Rooms", () => {
       const ann = joinRoom(first, "Ann");
 
       rooms.handle(ann, { type: "join", token: last(second, "token").token, name: "Ann" });
-      expect(state(first).players).toEqual([{ id: 0, name: "Ann", connected: false, wins: 0 }]);
-      expect(state(second).players).toEqual([{ id: 0, name: "Ann", connected: true, wins: 0 }]);
+      expect(state(first).players).toEqual([{ id: 0, name: "Ann", connected: false, wins: 0, money: 0 }]);
+      expect(state(second).players).toEqual([{ id: 0, name: "Ann", connected: true, wins: 0, money: 0 }]);
     });
   });
 
@@ -476,7 +535,10 @@ describe("Rooms", () => {
       const screen = createRoom();
       const ann = joinRoom(screen, "Ann");
       const bob = joinRoom(screen, "Bob");
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "live" } });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       rooms.handle(screen, { type: "start" });
       return { screen, ann, bob };
     };
@@ -500,7 +562,10 @@ describe("Rooms", () => {
 
     it("is also made when the game starts by itself", () => {
       const screen = createRoom();
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 2, rounds: 10, turns: "live" } });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 2, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       joinRoom(screen, "Ann");
       joinRoom(screen, "Bob");
       expect(last(screen, "field").field.tanks).toHaveLength(2);
@@ -566,7 +631,7 @@ describe("Rooms", () => {
 
       const again = member("Ann again");
       rooms.handle(again, { type: "resume", room, playerKey });
-      expect(types(again)).toEqual(["joined", "room", "aim", "reload", "energy"]);
+      expect(types(again)).toEqual(["joined", "room", "aim", "reload", "energy", "weapons"]);
       expect(last(again, "aim")).toEqual({ type: "aim", id: 0, angle: 33, power: 720 });
     });
 
@@ -593,7 +658,10 @@ describe("Rooms", () => {
       const screen = createRoom();
       const ann = joinRoom(screen, "Ann");
       const bob = joinRoom(screen, "Bob");
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "live" } });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       rooms.handle(screen, { type: "start" });
       return { screen, ann, bob };
     };
@@ -612,7 +680,9 @@ describe("Rooms", () => {
 
       vi.advanceTimersByTime(50);
       const [first] = of(screen, "shots");
-      expect(first.shots).toEqual([{ id: 1, owner: 0, x: expect.any(Number), y: expect.any(Number) }]);
+      expect(first.shots).toEqual([
+        { id: 1, owner: 0, weapon: "baby-missile", x: expect.any(Number), y: expect.any(Number) }
+      ]);
       // It has left upwards from the tank
       expect(first.shots[0].y).toBeLessThan(tank.y);
 
@@ -667,6 +737,123 @@ describe("Rooms", () => {
       // There is a crater where the explosion was
       expect(field.terrain[explosion.x][0]).toBeGreaterThan(explosion.y);
       expect(field.tanks[0].y).toBe(of(screen, "terrain")[0].tanks[0].y);
+    });
+
+    it("gives everyone a bundle of each weapon at the start of a game, and the Baby Missile to fire", () => {
+      const { ann } = startGame();
+      const weapons = last(ann, "weapons");
+      expect(weapons.selected).toBe("baby-missile");
+      expect(weapons.counts).toMatchObject({ missile: 5, nuke: 1, tracer: 20 });
+      expect(weapons.counts["baby-missile"]).toBeUndefined();
+    });
+
+    it("lets a player choose a weapon it has, and fires it", () => {
+      const { screen, ann } = startGame();
+      rooms.handle(ann, { type: "weapon", weapon: "missile" });
+      expect(last(ann, "weapons").selected).toBe("missile");
+
+      aimBeside(ann);
+      rooms.handle(ann, { type: "fire" });
+      // One less, and the same weapon is still chosen
+      expect(last(ann, "weapons")).toMatchObject({ selected: "missile", counts: { missile: 4 } });
+      vi.advanceTimersByTime(50);
+      expect(of(screen, "shots")[0].shots[0].weapon).toBe("missile");
+      vi.advanceTimersByTime(5000);
+      expect(last(screen, "explode")).toMatchObject({ radius: 40, weapon: "missile" });
+    });
+
+    it("goes back to the Baby Missile when the last one of a weapon is fired", () => {
+      const { ann } = startGame();
+      rooms.handle(ann, { type: "weapon", weapon: "nuke" });
+      rooms.handle(ann, { type: "aim", power: 0 });
+      // Nothing was fired yet: the nuke is still there
+      expect(last(ann, "weapons").counts.nuke).toBe(1);
+      rooms.handle(ann, { type: "aim", angle: 90, power: 1000 });
+      rooms.handle(ann, { type: "fire" });
+      const weapons = last(ann, "weapons");
+      expect(weapons.selected).toBe("baby-missile");
+      expect(weapons.counts.nuke).toBeUndefined();
+
+      rooms.handle(ann, { type: "weapon", weapon: "nuke" });
+      expect(errors(ann)).toEqual([{ type: "error", code: "no-weapon", re: "weapon" }]);
+      expect(last(ann, "weapons").selected).toBe("baby-missile");
+    });
+
+    it("refuses a weapon that does not exist or that the player has none of, and one chosen outside a game", () => {
+      const { screen, ann } = startGame();
+      rooms.handle(ann, { type: "weapon", weapon: "death-ray" });
+      rooms.handle(ann, { type: "weapon", weapon: "tracer" });
+      for (let shot = 0; shot < 20; shot++) {
+        rooms.handle(ann, { type: "fire" });
+        vi.advanceTimersByTime(1000);
+      }
+      rooms.handle(ann, { type: "weapon", weapon: "tracer" });
+      rooms.handle(screen, { type: "weapon", weapon: "missile" });
+      expect(errors(ann)).toEqual([
+        { type: "error", code: "no-weapon", re: "weapon" },
+        { type: "error", code: "no-weapon", re: "weapon" }
+      ]);
+      expect(errors(screen)).toEqual([{ type: "error", code: "not-allowed", re: "weapon" }]);
+
+      const lobby = createRoom();
+      const cid = joinRoom(lobby, "Cid");
+      rooms.handle(cid, { type: "weapon", weapon: "missile" });
+      expect(errors(cid)).toEqual([{ type: "error", code: "wrong-phase", re: "weapon" }]);
+    });
+
+    it("reloads longer after a bigger weapon", () => {
+      const { ann } = startGame();
+      // Dirt, which does not harm the tank it falls on
+      rooms.handle(ann, { type: "weapon", weapon: "ton-of-dirt" });
+      rooms.handle(ann, { type: "fire" });
+      expect(last(ann, "reload")).toEqual({ type: "reload", time: 12000 });
+      vi.advanceTimersByTime(11000);
+      rooms.handle(ann, { type: "fire" });
+      expect(errors(ann)).toEqual([{ type: "error", code: "reloading", re: "fire" }]);
+    });
+
+    it("tells a controller that returns its weapons, and keeps them over the rounds", () => {
+      const { screen, ann } = startGame();
+      rooms.handle(ann, { type: "weapon", weapon: "tracer" });
+      rooms.handle(ann, { type: "fire" });
+      rooms.disconnect(ann);
+      const again = member("Ann again");
+      rooms.handle(again, { type: "resume", room: state(screen).room, playerKey: last(ann, "joined").playerKey });
+      expect(last(again, "weapons")).toMatchObject({ selected: "tracer", counts: { tracer: 19, missile: 5 } });
+    });
+
+    it("draws a wind for each round, within what the room allows, and tells it to everyone", () => {
+      const screen = createRoom();
+      const ann = joinRoom(screen, "Ann");
+      joinRoom(screen, "Bob");
+      expect(state(screen).wind).toBe(0);
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 500, cash: 0, interest: 5, armsLevel: 4 }
+      });
+      rooms.handle(screen, { type: "start" });
+
+      const { wind } = state(ann);
+      expect(Number.isInteger(wind)).toBe(true);
+      expect(wind).not.toBe(0);
+      expect(Math.abs(wind)).toBeLessThanOrEqual(500);
+      expect(state(screen).wind).toBe(wind);
+      expect(last(screen, "field").field.wind).toBe(wind);
+    });
+
+    it("has a wind of at most 200 in a new room, as the original, unless told otherwise", () => {
+      const sent: ServerMessage[] = [];
+      const other = new Rooms<string>(
+        (_, message) => sent.push(message),
+        () => {}
+      );
+      other.handle("screen", { type: "create", mode: "hotseat" });
+      const room = sent.find((message) => message.type === "room") as Extract<ServerMessage, { type: "room" }>;
+      expect(room.state.settings.maxWind).toBe(200);
+      other.handle("screen", {
+        type: "settings",
+        settings: { ...room.state.settings, maxWind: 501, cash: 0, interest: 5, armsLevel: 4 }
+      } as never);
     });
 
     it("reloads for three seconds after a shot", () => {
@@ -744,7 +931,10 @@ describe("Rooms", () => {
       const screen = createRoom();
       const ann = joinRoom(screen, "Ann");
       const bob = joinRoom(screen, "Bob");
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "live" } });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       rooms.handle(screen, { type: "start" });
       return { screen, ann, bob };
     };
@@ -838,7 +1028,10 @@ describe("Rooms", () => {
 
     it("finishes the game after its last round, and goes back to the lobby when the screen says so", () => {
       const screen = createRoom();
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 8, rounds: 2, turns: "live" } });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 2, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       const ann = joinRoom(screen, "Ann");
       const bob = joinRoom(screen, "Bob");
       rooms.handle(screen, { type: "lobby" });
@@ -1021,7 +1214,10 @@ describe("Rooms", () => {
       const screen = createRoom();
       const ann = joinRoom(screen, "Ann");
       const bob = joinRoom(screen, "Bob");
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "live" } });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       rooms.handle(screen, { type: "start" });
       expect(state(screen).turn).toBeNull();
       rooms.handle(ann, { type: "fire" });
@@ -1035,7 +1231,10 @@ describe("Rooms", () => {
       const screen = createRoom();
       const ann = joinRoom(screen, "Ann");
       const bob = joinRoom(screen, "Bob");
-      rooms.handle(screen, { type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "live" } });
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       rooms.handle(screen, { type: "start" });
       return { screen, ann, bob };
     };
@@ -1081,6 +1280,227 @@ describe("Rooms", () => {
       expect(errors(ann)).toEqual([{ type: "error", code: "wrong-phase", re: "say" }]);
       expect(errors(screen)).toEqual([{ type: "error", code: "not-allowed", re: "say" }]);
       expect(said(screen)).toEqual([]);
+    });
+  });
+
+  describe("money and the shop", () => {
+    const of = <Type extends ServerMessage["type"]>(member: Member, type: Type) =>
+      member.messages.filter((message) => message.type === type) as Extract<ServerMessage, { type: Type }>[];
+    const money = (of: Member, id: number) => state(of).players.find((player) => player.id === id)!.money;
+
+    /** A game of three with the real shop, and the given money at the start. */
+    const startGame = (cash: number, more: Partial<RoomState["settings"]> = {}) => {
+      rooms.shutdown();
+      rooms = createRooms({});
+      const screen = createRoom();
+      const players = [joinRoom(screen, "Ann"), joinRoom(screen, "Bob"), joinRoom(screen, "Cid")];
+      rooms.handle(screen, {
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 3, turns: "live", maxWind: 0, cash, interest: 5, armsLevel: 4, ...more }
+      });
+      rooms.handle(screen, { type: "start" });
+      return { screen, players };
+    };
+    /** A player fires straight up at low power, so that the shot comes down on its own tank and destroys it. */
+    const destroySelf = (who: Member) => {
+      rooms.handle(who, { type: "aim", angle: 90, power: 100 });
+      rooms.handle(who, { type: "fire" });
+      vi.advanceTimersByTime(2000);
+    };
+
+    it("starts the first round at once when nobody has money, with only the Baby Missile", () => {
+      const { screen, players } = startGame(0);
+      expect(state(screen)).toMatchObject({ phase: "playing", round: 1, shop: null });
+      expect(last(players[0], "weapons")).toEqual({ type: "weapons", selected: "baby-missile", counts: {} });
+      expect(state(screen).players.map((player) => player.money)).toEqual([0, 0, 0]);
+    });
+
+    it("opens the shop before the first round when the players start with money", () => {
+      const { screen, players } = startGame(10000);
+      expect(state(screen)).toMatchObject({ phase: "shop", round: 0, shop: { time: 60000, ready: [] } });
+      expect(of(screen, "field")).toEqual([]);
+      expect(money(screen, 0)).toBe(10000);
+
+      // Nothing of a round can be done in the shop
+      rooms.handle(players[0], { type: "fire" });
+      expect(errors(players[0])).toEqual([{ type: "error", code: "wrong-phase", re: "fire" }]);
+    });
+
+    it("sells a bundle of a weapon for its price", () => {
+      const { screen, players } = startGame(10000);
+      const [ann] = players;
+      rooms.handle(ann, { type: "buy", weapon: "missile" });
+      expect(last(ann, "weapons").counts).toEqual({ missile: 5 });
+      expect(money(screen, 0)).toBe(8125);
+      expect(money(screen, 1)).toBe(10000);
+
+      rooms.handle(ann, { type: "buy", weapon: "missile" });
+      expect(last(ann, "weapons").counts).toEqual({ missile: 10 });
+      expect(money(ann, 0)).toBe(6250);
+    });
+
+    it("refuses what cannot be bought", () => {
+      const { screen, players } = startGame(10000);
+      const [ann] = players;
+      rooms.handle(ann, { type: "buy", weapon: "nuke" });
+      rooms.handle(ann, { type: "buy", weapon: "baby-missile" });
+      rooms.handle(ann, { type: "buy", weapon: "death-ray" });
+      rooms.handle(screen, { type: "buy", weapon: "missile" });
+      expect(errors(ann)).toEqual([
+        { type: "error", code: "no-money", re: "buy" },
+        { type: "error", code: "no-weapon", re: "buy" },
+        { type: "error", code: "no-weapon", re: "buy" }
+      ]);
+      expect(errors(screen)).toEqual([{ type: "error", code: "not-allowed", re: "buy" }]);
+      expect(money(screen, 0)).toBe(10000);
+
+      // At most 99 of anything: five bundles of tracers fit, the sixth does not
+      for (let bundle = 0; bundle < 5; bundle++) rooms.handle(ann, { type: "buy", weapon: "tracer" });
+      expect(last(ann, "weapons").counts.tracer).toBe(80);
+      rooms.handle(ann, { type: "buy", weapon: "tracer" });
+      expect(errors(ann).pop()).toEqual({ type: "error", code: "too-many", re: "buy" });
+      expect(money(screen, 0)).toBe(9960);
+    });
+
+    it("starts the round when everyone who is connected is ready", () => {
+      const { screen, players } = startGame(10000);
+      const [ann, bob, cid] = players;
+      rooms.handle(ann, { type: "buy", weapon: "missile" });
+      rooms.handle(ann, { type: "ready" });
+      rooms.handle(bob, { type: "ready" });
+      expect(state(screen)).toMatchObject({ phase: "shop", shop: { ready: [0, 1] } });
+
+      // The shop does not wait for one who is away
+      rooms.disconnect(cid);
+      expect(state(screen)).toMatchObject({ phase: "playing", round: 1, shop: null });
+      expect(of(screen, "field")).toHaveLength(1);
+      // What was bought can be fired
+      rooms.handle(ann, { type: "weapon", weapon: "missile" });
+      expect(last(ann, "weapons")).toMatchObject({ selected: "missile", counts: { missile: 5 } });
+      rooms.handle(ann, { type: "buy", weapon: "missile" });
+      expect(errors(ann)).toEqual([{ type: "error", code: "wrong-phase", re: "buy" }]);
+    });
+
+    it("closes the shop by itself after a minute", () => {
+      const { screen } = startGame(10000);
+      vi.advanceTimersByTime(59000);
+      expect(state(screen).phase).toBe("shop");
+      vi.advanceTimersByTime(1000);
+      expect(state(screen)).toMatchObject({ phase: "playing", round: 1 });
+    });
+
+    it("tells a player who returns to the shop what it has", () => {
+      const { screen, players } = startGame(10000);
+      const [ann] = players;
+      rooms.handle(ann, { type: "buy", weapon: "missile" });
+      rooms.disconnect(ann);
+      vi.advanceTimersByTime(20000);
+      const again = member("Ann again");
+      rooms.handle(again, { type: "resume", room: state(screen).room, playerKey: last(ann, "joined").playerKey });
+      expect(state(again)).toMatchObject({ phase: "shop", shop: { time: 40000 } });
+      expect(money(again, 0)).toBe(8125);
+      expect(last(again, "weapons").counts).toEqual({ missile: 5 });
+    });
+
+    it("pays the winner of a round, charges for damage to oneself, and opens the shop with interest", () => {
+      const { screen, players } = startGame(0);
+      const [ann, bob, cid] = players;
+      destroySelf(ann);
+      destroySelf(bob);
+      expect(last(screen, "roundOver")).toMatchObject({ round: 1, winner: 2 });
+      // As measured from the original: 5,000 for the one who is left, -1,500 for destroying oneself
+      expect(state(screen).players.map((player) => player.money)).toEqual([-1500, -1500, 5000]);
+
+      vi.advanceTimersByTime(5000);
+      expect(state(screen)).toMatchObject({ phase: "shop", round: 1 });
+      // Five per cent on what was not spent; a debt stays as it is
+      expect(state(screen).players.map((player) => player.money)).toEqual([-1500, -1500, 5250]);
+      rooms.handle(ann, { type: "buy", weapon: "tracer" });
+      expect(errors(ann)).toEqual([{ type: "error", code: "no-money", re: "buy" }]);
+
+      rooms.handle(cid, { type: "buy", weapon: "missile" });
+      for (const player of players) rooms.handle(player, { type: "ready" });
+      expect(state(screen)).toMatchObject({ phase: "playing", round: 2 });
+      expect(last(cid, "weapons").counts).toEqual({ missile: 5 });
+    });
+
+    it("sells only the weapons of the arms level of the room", () => {
+      const { screen, players } = startGame(50000, { armsLevel: 0 });
+      const [ann] = players;
+      rooms.handle(ann, { type: "buy", weapon: "nuke" });
+      rooms.handle(ann, { type: "buy", weapon: "mirv" });
+      expect(errors(ann)).toEqual([
+        { type: "error", code: "no-weapon", re: "buy" },
+        { type: "error", code: "no-weapon", re: "buy" }
+      ]);
+      rooms.handle(ann, { type: "buy", weapon: "baby-nuke" });
+      expect(last(ann, "weapons").counts).toEqual({ "baby-nuke": 3 });
+      expect(money(screen, 0)).toBe(40000);
+    });
+
+    it("pays the interest the room is set to", () => {
+      const { screen, players } = startGame(0, { interest: 30 });
+      destroySelf(players[0]);
+      destroySelf(players[1]);
+      vi.advanceTimersByTime(5000);
+      expect(state(screen).players.map((player) => player.money)).toEqual([-1500, -1500, 6500]);
+    });
+
+    it("lets a new player join while the shop is open, with the money of the start", () => {
+      const { screen, players } = startGame(10000);
+      rooms.handle(players[0], { type: "buy", weapon: "baby-nuke" });
+      const dee = joinRoom(screen, "Dee");
+      expect(last(dee, "joined").id).toBe(3);
+      expect(last(dee, "weapons")).toEqual({ type: "weapons", selected: "baby-missile", counts: {} });
+      expect(state(dee)).toMatchObject({ phase: "shop" });
+      expect(state(screen).players.map((player) => player.money)).toEqual([0, 10000, 10000, 10000]);
+
+      // The shop waits for the new player too, and the round has a tank for it
+      for (const player of players) rooms.handle(player, { type: "ready" });
+      expect(state(screen).phase).toBe("shop");
+      rooms.handle(dee, { type: "buy", weapon: "missile" });
+      rooms.handle(dee, { type: "ready" });
+      expect(state(screen)).toMatchObject({ phase: "playing", round: 1 });
+      expect(
+        last(screen, "field")
+          .field.tanks.map((tank) => tank.id)
+          .sort()
+      ).toEqual([0, 1, 2, 3]);
+      expect(last(dee, "aim").id).toBe(3);
+
+      // Not during a round
+      const eve = joinRoom(screen, "Eve");
+      expect(eve.messages).toEqual([{ type: "error", code: "wrong-phase", re: "join" }]);
+    });
+
+    it("lets a new player join between two rounds, and keeps the room at its maximum", () => {
+      const { screen, players } = startGame(0, { maxPlayers: 4 });
+      destroySelf(players[0]);
+      destroySelf(players[1]);
+      vi.advanceTimersByTime(5000);
+      expect(state(screen)).toMatchObject({ phase: "shop", round: 1 });
+      const dee = joinRoom(screen, "Dee");
+      expect(state(dee).players.find((player) => player.name === "Dee")).toMatchObject({ wins: 0, money: 0 });
+      const eve = joinRoom(screen, "Eve");
+      expect(eve.messages).toEqual([{ type: "error", code: "room-full", re: "join" }]);
+    });
+
+    it("pays for the damage to another tank, and more for destroying it", () => {
+      const { screen, players } = startGame(0);
+      const field = last(screen, "field").field;
+      // The first tank from the left fires at the second with what the flight needs
+      const [from, to] = [...field.tanks].sort((a, b) => a.x - b.x);
+      const shooter = players[from.id];
+      let paid = 0;
+      for (let power = 150; power <= 700 && paid === 0; power += 5) {
+        rooms.handle(shooter, { type: "aim", angle: 60, power });
+        rooms.handle(shooter, { type: "fire" });
+        vi.advanceTimersByTime(8000);
+        paid = money(screen, from.id);
+      }
+      const energy = last(screen, "terrain").tanks.find((tank) => tank.id === to.id)!.energy;
+      expect(energy).toBeLessThan(100);
+      expect(paid).toBe((100 - energy) * 20 + (energy === 0 ? 2000 : 0));
     });
   });
 });

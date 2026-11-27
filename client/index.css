@@ -617,3 +617,132 @@ a.button {
 .controller__leave {
   margin-top: 2rem;
 }
+
+/* The choice of the weapon, on the phone */
+
+.weapon {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 28rem;
+  margin: 1.5rem auto 0;
+}
+
+.weapon__label {
+  color: var(--dim);
+}
+
+.weapon__select {
+  flex: 1;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--dim);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 1.125rem;
+}
+
+.weapon__select option {
+  color: #000;
+}
+
+/* The wind of the round: on the big screen in a corner, as in the original, and on the phone above the energy */
+
+.game__wind {
+  position: fixed;
+  z-index: 11;
+  top: 1rem;
+  right: 1.25rem;
+  margin: 0;
+  padding: 0.4rem 1rem;
+  border-radius: 2rem;
+  background: rgba(16, 16, 24, 0.7);
+  color: #fff;
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.view .controller__wind {
+  max-width: 28rem;
+  margin: 0 auto 0.5rem;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* The money in the standings */
+
+.standings__money {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The shop, on the phone */
+
+.shop {
+  max-width: 28rem;
+  margin: 0 auto;
+}
+
+.view .shop__money {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 0.75rem;
+  color: var(--text);
+  font-size: 1.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.shop__money span {
+  color: var(--dim);
+  font-weight: 400;
+}
+
+.shop__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.shop__items li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #2a2a3a;
+}
+
+.shop__name {
+  flex: 1;
+  color: var(--text);
+}
+
+.shop__name small {
+  display: block;
+  color: var(--dim);
+}
+
+.shop__ready {
+  display: block;
+  width: 100%;
+  margin-top: 1.25rem;
+  padding: 1rem;
+  font-size: 1.25rem;
+}
+
+/* The QR code for joining between two rounds, under the standings of the shop */
+
+.shop-join {
+  margin-top: 2rem;
+  text-align: center;
+}
+
+.shop-join svg,
+.shop-join img {
+  width: 11rem;
+  height: 11rem;
+}

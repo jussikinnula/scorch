@@ -35,14 +35,16 @@ function placeTank(field: FieldState, id: number, x: number): TankState {
 
 /**
  * A new playing field: a terrain, and the tanks of the players spread more or less evenly across
- * it, in a random order.
+ * it, in a random order. The wind is drawn from none to the strongest allowed, either way: how the
+ * original draws it is not measured.
  */
-export function createField(players: number[], random: Random): FieldState {
+export function createField(players: number[], random: Random, maxWind = 0): FieldState {
   const field: FieldState = {
     width: FIELD_WIDTH,
     height: FIELD_HEIGHT,
     terrain: generateTerrain(FIELD_WIDTH, FIELD_HEIGHT, random),
-    tanks: []
+    tanks: [],
+    wind: 0
   };
 
   // The order of the tanks from the left is shuffled
@@ -58,6 +60,8 @@ export function createField(players: number[], random: Random): FieldState {
     const x = EDGE + slot * (index + 0.5) + (random() - 0.5) * slot * 0.4;
     placeTank(field, id, Math.round(x));
   });
+  // Drawn last, so that the wind does not change what the same seed gives for the rest
+  if (maxWind > 0) field.wind = Math.round((random() * 2 - 1) * maxWind);
   return field;
 }
 
