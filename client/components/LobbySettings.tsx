@@ -30,7 +30,10 @@ interface Props {
   change: (changed: Partial<RoomSettings>) => void;
 }
 
-/** The settings of a game, for its host to change in the lobby: on the screen of a hotseat game, and later in an online game. */
+/**
+ * The settings of a game, for the one who sets it up to change: in the lobby of a hotseat game on
+ * its screen, and on the front page when an online game is created.
+ */
 export default function LobbySettings({ settings, players, current, change }: Props) {
   const setMaxPlayers = (by: number) => change({ maxPlayers: current().maxPlayers + by });
   const setRounds = (by: number) => change({ rounds: current().rounds + by });
@@ -45,6 +48,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
       <div className="stepper">
         <span id="max-players">Players at most</span>
         <button
+          type="button"
           className="button button--small"
           aria-label="Fewer players"
           onClick={() => setMaxPlayers(-1)}
@@ -54,6 +58,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
         </button>
         <output aria-labelledby="max-players">{settings.maxPlayers}</output>
         <button
+          type="button"
           className="button button--small"
           aria-label="More players"
           onClick={() => setMaxPlayers(1)}
@@ -65,6 +70,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
       <div className="stepper" role="group" aria-label="Turns">
         <span>Turns</span>
         <button
+          type="button"
           className={`button button--small${settings.turns === "classic" ? " button--chosen" : ""}`}
           aria-pressed={settings.turns === "classic"}
           onClick={() => change({ turns: "classic" })}
@@ -72,6 +78,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
           Classic
         </button>
         <button
+          type="button"
           className={`button button--small${settings.turns === "live" ? " button--chosen" : ""}`}
           aria-pressed={settings.turns === "live"}
           onClick={() => change({ turns: "live" })}
@@ -87,6 +94,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
       <div className="stepper">
         <span id="rounds">Rounds</span>
         <button
+          type="button"
           className="button button--small"
           aria-label="Fewer rounds"
           onClick={() => setRounds(-1)}
@@ -96,6 +104,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
         </button>
         <output aria-labelledby="rounds">{settings.rounds}</output>
         <button
+          type="button"
           className="button button--small"
           aria-label="More rounds"
           onClick={() => setRounds(1)}
@@ -107,6 +116,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
       <div className="stepper">
         <span id="max-wind">Wind at most</span>
         <button
+          type="button"
           className="button button--small"
           aria-label="Less wind"
           onClick={() => setMaxWind(-WIND_STEP)}
@@ -116,6 +126,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
         </button>
         <output aria-labelledby="max-wind">{settings.maxWind === 0 ? "None" : settings.maxWind}</output>
         <button
+          type="button"
           className="button button--small"
           aria-label="More wind"
           onClick={() => setMaxWind(WIND_STEP)}
@@ -127,6 +138,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
       <div className="stepper">
         <span id="cash">Cash at start</span>
         <button
+          type="button"
           className="button button--small"
           aria-label="Less cash"
           onClick={() => setCash(-1)}
@@ -136,6 +148,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
         </button>
         <output aria-labelledby="cash">{formatMoney(settings.cash)}</output>
         <button
+          type="button"
           className="button button--small"
           aria-label="More cash"
           onClick={() => setCash(1)}
@@ -147,6 +160,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
       <div className="stepper">
         <span id="interest">Interest</span>
         <button
+          type="button"
           className="button button--small"
           aria-label="Less interest"
           onClick={() => change({ interest: current().interest - 1 })}
@@ -156,6 +170,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
         </button>
         <output aria-labelledby="interest">{settings.interest} %</output>
         <button
+          type="button"
           className="button button--small"
           aria-label="More interest"
           onClick={() => change({ interest: current().interest + 1 })}
@@ -167,6 +182,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
       <div className="stepper">
         <span id="arms-level">Arms level</span>
         <button
+          type="button"
           className="button button--small"
           aria-label="Lower arms level"
           onClick={() => change({ armsLevel: current().armsLevel - 1 })}
@@ -176,6 +192,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
         </button>
         <output aria-labelledby="arms-level">{settings.armsLevel}</output>
         <button
+          type="button"
           className="button button--small"
           aria-label="Higher arms level"
           onClick={() => change({ armsLevel: current().armsLevel + 1 })}
@@ -188,6 +205,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
         <span>Walls</span>
         {(["none", "rubber", "wraparound"] as const).map((walls) => (
           <button
+            type="button"
             key={walls}
             className={`button button--small${settings.walls === walls ? " button--chosen" : ""}`}
             aria-pressed={settings.walls === walls}
@@ -200,6 +218,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
       <div className="stepper" role="group" aria-label="Changing wind">
         <span>Changing wind</span>
         <button
+          type="button"
           className={`button button--small${settings.changingWind ? "" : " button--chosen"}`}
           aria-pressed={!settings.changingWind}
           onClick={() => change({ changingWind: false })}
@@ -207,6 +226,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
           Off
         </button>
         <button
+          type="button"
           className={`button button--small${settings.changingWind ? " button--chosen" : ""}`}
           aria-pressed={settings.changingWind}
           onClick={() => change({ changingWind: true })}
@@ -217,6 +237,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
       <div className="stepper" role="group" aria-label="Trace paths">
         <span>Trace paths</span>
         <button
+          type="button"
           className={`button button--small${settings.traces ? "" : " button--chosen"}`}
           aria-pressed={!settings.traces}
           onClick={() => change({ traces: false })}
@@ -224,6 +245,7 @@ export default function LobbySettings({ settings, players, current, change }: Pr
           Tracers only
         </button>
         <button
+          type="button"
           className={`button button--small${settings.traces ? " button--chosen" : ""}`}
           aria-pressed={settings.traces}
           onClick={() => change({ traces: true })}

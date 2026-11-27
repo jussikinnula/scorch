@@ -34,6 +34,11 @@ interface Props {
   action?: Action;
   /** The id of the player whose turn it is, in the classic mode: the tank is pointed out. */
   turn?: number | null;
+  /**
+   * Whether the field is a part of the page, as wide as the place it is in, instead of covering the
+   * whole window: so it is in an online game, where the controls are on the same page.
+   */
+  boxed?: boolean;
 }
 
 /** Where the playing field is on a canvas: how large a pixel of the field is, and where its top left corner is. */
@@ -374,31 +379,49 @@ export function fallTanks(
   });
 }
 
-/** The size of the window in pixels of the device, kept up to date. */
-function useWindowSize() {
+/**
+ * The size of what the field is drawn on in pixels of the device, kept up to date: the window, or
+ * the place of the canvas on the page when the field is a part of the page.
+ */
+function useCanvasSize(canvas: React.RefObject<HTMLCanvasElement | null>, boxed: boolean) {
   const measure = () => {
     const ratio = window.devicePixelRatio || 1;
-    return { width: Math.round(window.innerWidth * ratio), height: Math.round(window.innerHeight * ratio) };
+    const box = boxed ? canvas.current : null;
+    // Before the canvas has a place on the page, the shape of the field itself
+    const width = box ? box.clientWidth || 640 : window.innerWidth;
+    const height = box ? box.clientHeight || 360 : window.innerHeight;
+    return { width: Math.round(width * ratio), height: Math.round(height * ratio) };
   };
   const [size, setSize] = useState(measure);
 
   useEffect(() => {
-    const onResize = () => setSize(measure());
+    const onResize = () =>
+      setSize((current) => {
+        const next = measure();
+        return next.width === current.width && next.height === current.height ? current : next;
+      });
+    onResize();
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+    // The place of the canvas can change without the window changing, e.g. when the phone is turned
+    const observer = boxed && typeof ResizeObserver !== "undefined" ? new ResizeObserver(onResize) : null;
+    if (observer && canvas.current) observer.observe(canvas.current);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      observer?.disconnect();
+    };
+  }, [boxed]);
 
   return size;
 }
 
 /** The playing field: the terrain, the tanks and what flies, drawn on a canvas that covers the whole window. */
-export default function Field({ field, players, bubbles, action, turn }: Props) {
+export default function Field({ field, players, bubbles, action, turn, boxed = false }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const background = useRef<{ of: number[][]; width: number; height: number; picture: HTMLCanvasElement } | null>(null);
   const tails = useRef(new Map<number, { x: number; y: number }[]>());
   const shown = useRef(new Map<number, { x: number; y: number; speed: number }>());
   const drawnAt = useRef(performance.now());
-  const { width, height } = useWindowSize();
+  const { width, height } = useCanvasSize(canvas, boxed);
   // What to draw is kept where the drawing of each frame finds the latest of it
   const scene = useRef({ field, players, bubbles, action, turn, width, height });
   scene.current = { field, players, bubbles, action, turn, width, height };
@@ -441,6 +464,13 @@ export default function Field({ field, players, bubbles, action, turn }: Props) 
   }, []);
 
   return (
-    <canvas ref={canvas} className="field" width={width} height={height} role="img" aria-label="The playing field" />
+    <canvas
+      ref={canvas}
+      className={boxed ? "field field--boxed" : "field"}
+      width={width}
+      height={height}
+      role="img"
+      aria-label="The playing field"
+    />
   );
 }

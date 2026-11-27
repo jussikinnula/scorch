@@ -251,6 +251,21 @@ Designed for portrait and one thumb:
 
 In the online view the same controls are below the playing field, and on a desktop the keys work as well (the arrows, the space bar), as in the original.
 
+**The look of the original** (phase 5). The menus and the controls are to look like those of the original game, instead of the plain dark pages of today. What that look is, from the screens of the original (ORIGINAL.md):
+
+- Light grey panels with bevelled edges, as if raised from the screen: the status bar, the dialogs (Rankings, Inventory) and the buttons are all of this kind. A pressed or chosen button looks sunk.
+- A small bitmap font, in black on the grey, with the key of a button picked out in another colour.
+- The status bar of a round: two rows of small text and icons on a grey bar above the field. The bar of the online view already has its content and place.
+- The shop: a list of rows, each with how many the player has, a small icon of the weapon, its name and its price for a bundle.
+- Plain, strong colours on the field itself, and the tanks in the colours of the players.
+
+Two things belong to this:
+
+- **The weapon menu.** The weapon is chosen from a plain dropdown of the browser now. It becomes a menu of our own in the same style: the icon of the weapon, its name and how many are left, as in the status bar and the shop of the original, opened by a tap on the phone and usable with the keys (Tab) on a desktop.
+- **Everything else in the same style:** the front page, the lobby and its settings, the shop, the standings, the bar of the online view and the controller of the phone.
+
+It comes late on purpose: the pages still change with every feature, and restyling them all is best done once.
+
 ### 4.8 Protecting public online games
 
 Because anyone can join a public game: a limit on the length and the characters of names and a word filter, a limit on the number of messages per connection, a limit on rooms and connections per IP address, the right of the host to remove a player, and a check of every input on the server (the number of projectiles, the reload time, the turn).
@@ -287,10 +302,11 @@ Done when: the same match of four works in the live mode, the reload times have 
 
 **Phase 3 – Online.** The combined field + controls view, the list of public games, private links, passing on the host, the protections, the limits of the speech bubbles.
 Done when: the game works between players in different networks and stands the basic cases of deliberate disruption.
+Done so far (phase 3): online rooms on the server (a public or a private room, whose creator is its first player and its host; the link; the list of public games; the host passing on; a game that goes on with those who are left), and the view of an online player with the field and the controls on one page. Still to do: the layout for phones and the keys for desktops, the limits per address, the word filter and muting. The design is in ONLINE.md.
 
 **Phase 4 – The whole arsenal.** The rest of the weapons, shields, guidance systems, parachutes, batteries, fuel and moving, tunnelling and the Contact Trigger, the rest of the walls, air viscosity, the Basic and Greedy scoring.
 
-**Phase 5 – Finishing.** Teams (Standard, Corporate, Vicious), the Synchronous mode, Free Market, the skies and the hostile environment (lightning), sound effects (launches and explosions by weapon, see 3.7), the ready-made comments of the tanks, a spectator mode, the damage of the tank and the DANGER light on the controller (see 4.7).
+**Phase 5 – Finishing.** Teams (Standard, Corporate, Vicious), the Synchronous mode, Free Market, the skies and the hostile environment (lightning), sound effects (launches and explosions by weapon, see 3.7), the ready-made comments of the tanks, a spectator mode, the damage of the tank and the DANGER light on the controller (see 4.7). The look of the original for the whole user interface, and a weapon menu of our own in place of the plain dropdown (see 4.7, "The look of the original").
 
 Online is phase 3 on purpose: with hotseat the core of the game can be played and tuned in the same room before the demands of a public service come along. The architecture is still the same from the start, so phase 3 is new views and joining logic, not a rewrite.
 

@@ -20,7 +20,7 @@ export const SOCKET_PATH = "/ws";
  * A client tells its version in the address it connects to (see socketPath), the server in its
  * greeting. The test of this file fails when the messages change and the version does not.
  */
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 
 /** The name of the part of the address of the WebSocket API where a client tells its version. */
 export const PROTOCOL_PARAMETER = "protocol";
@@ -80,8 +80,21 @@ const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 // The state of a room
 
-/** How a room is joined. "online" comes later. */
-export type RoomMode = "hotseat";
+/**
+ * How a room is played. Hotseat: one big screen shows the field, and the phones that join with its
+ * QR code are the controllers. Online: every player has the field and the controls on a device of
+ * its own, and joins from the list of public games or with a link.
+ */
+export type RoomMode = "hotseat" | "online";
+
+/**
+ * How long an online room waits for players in its lobby, in milliseconds. When the time is out the
+ * game starts by itself with those who are there, or the room is closed if there are too few of them.
+ */
+export const LOBBY_TIME = 5 * 60 * 1000;
+
+/** How long the host of an online room can be disconnected before another player becomes the host, in milliseconds. */
+export const HOST_GRACE = 10000;
 
 /**
  * Where a room is in a game: in the lobby before it, playing a round, in the shop between two
@@ -140,6 +153,20 @@ export interface PlayerInfo {
   money: number;
 }
 
+/** The settings of a new room: those of the original where it has them. */
+export const defaultSettings = (): RoomSettings => ({
+  maxPlayers: DEFAULT_MAX_PLAYERS,
+  rounds: DEFAULT_ROUNDS,
+  turns: "classic",
+  maxWind: DEFAULT_MAX_WIND,
+  cash: 0,
+  interest: DEFAULT_INTEREST,
+  armsLevel: MAX_ARMS_LEVEL,
+  traces: false,
+  changingWind: false,
+  walls: "none"
+});
+
 /** Everything about a room that everyone in it may know. There are no keys or tokens in it. */
 export interface RoomState {
   room: string;
@@ -147,8 +174,20 @@ export interface RoomState {
   phase: RoomPhase;
   settings: RoomSettings;
   players: PlayerInfo[];
-  /** Whether the screen of a hotseat room is connected. The game is paused while it is not. */
+  /** Whether the screen of a hotseat room is connected. The game is paused while it is not. Always false in an online room. */
   screen: boolean;
+  /**
+   * The id of the player who is the host of an online room: the one who changes the settings, starts
+   * the game and removes players. Null in a hotseat room, whose host is its screen.
+   */
+  host: number | null;
+  /** Whether an online room is in the list of public games. False in a hotseat room. */
+  public: boolean;
+  /**
+   * In the lobby of an online room: how long it is, in milliseconds, until the game starts by itself
+   * with those who are there, or the room is closed if they are too few to play. Otherwise null.
+   */
+  startsIn: number | null;
   /** The number of the round that is being played, from 1. 0 before the game. */
   round: number;
   /**
@@ -167,6 +206,19 @@ export interface RoomState {
    * have said they are ready. Otherwise null.
    */
   shop: { time: number; ready: number[] } | null;
+}
+
+/** An online room in the list of public games. */
+export interface PublicRoom {
+  room: string;
+  /** The token to join it with. */
+  token: string;
+  /** The name of its host. */
+  host: string;
+  players: number;
+  settings: RoomSettings;
+  /** How long it is until the game starts by itself, in milliseconds. */
+  startsIn: number;
 }
 
 /** A tank on the playing field. */
@@ -238,6 +290,8 @@ export type ErrorCode =
   /** The key does not open the room: not its host, or not a player of it. */
   | "no-session"
   | "room-full"
+  /** The server has as many games as it takes, in all or from this address. */
+  | "busy"
   | "bad-name"
   /** The client is not in a room, or its role may not do this. */
   | "not-allowed"
@@ -263,7 +317,16 @@ export type ErrorCode =
 export type ClientMessage =
   | { type: "ping" }
   /** A screen creates a hotseat room and becomes its host. Answered with "created". */
-  | { type: "create"; mode: RoomMode }
+  | { type: "create"; mode: "hotseat" }
+  /**
+   * A player creates an online room, and is its first player and its host. A public room is in the
+   * list of games anyone can join; a private one is joined only with its link. The settings of an
+   * online room are given here and stay as they are: those who see the room choose it by them.
+   * Answered with "joined".
+   */
+  | { type: "create"; mode: "online"; name: string; public: boolean; settings: RoomSettings }
+  /** Asks for the public online rooms that can be joined. Answered with "rooms". */
+  | { type: "list" }
   /** A screen returns to its room, e.g. after a reload. Answered with "created". */
   | { type: "host"; room: string; hostKey: string }
   /** A controller joins the room of a token of the QR code. Answered with "joined". */
@@ -278,7 +341,7 @@ export type ClientMessage =
   | { type: "rejoin"; token: string; playerKey: string }
   /** A player leaves the room for good. */
   | { type: "leave" }
-  /** The host changes the settings of the room, in the lobby. */
+  /** The host changes the settings of a hotseat room, in the lobby. Those of an online room cannot be changed. */
   | { type: "settings"; settings: RoomSettings }
   /** The host removes a player. */
   | { type: "kick"; id: number }
@@ -314,7 +377,12 @@ export type ServerMessage =
   | { type: "created"; room: string; hostKey: string }
   /** To a controller: it is this player of the room. The key is a secret to keep on the device. */
   | { type: "joined"; room: string; id: number; playerKey: string }
-  /** To the screen: the token to show in the QR code, and for how long it is the newest, in milliseconds. */
+  /** The public online rooms that can be joined right now: those in the lobby that are not full. */
+  | { type: "rooms"; rooms: PublicRoom[] }
+  /**
+   * To the screen: the token to show in the QR code, and for how long it is the newest, in milliseconds.
+   * To a player of an online room: the token of the link to the room, which does not change (expiresIn is 0).
+   */
   | { type: "token"; token: string; expiresIn: number }
   /** To everyone in the room: the state of the room, whenever something in it changes. */
   | { type: "room"; state: RoomState }
@@ -382,6 +450,7 @@ export function isClientMessage(value: unknown): value is ClientMessage {
 
   switch (message.type) {
     case "ping":
+    case "list":
     case "leave":
     case "start":
     case "lobby":
@@ -389,6 +458,13 @@ export function isClientMessage(value: unknown): value is ClientMessage {
     case "fire":
       return true;
     case "create":
+      if (message.mode === "online") {
+        return (
+          isText(message.name, MAX_NAME_LENGTH) &&
+          typeof message.public === "boolean" &&
+          isRoomSettings(message.settings)
+        );
+      }
       return message.mode === "hotseat";
     case "host":
       return isId(message.room) && isId(message.hostKey);

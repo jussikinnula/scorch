@@ -5,7 +5,7 @@ import { useRoute } from "./hooks/useRoute";
 import Controller from "./views/Controller";
 import Home from "./views/Home";
 import Join from "./views/Join";
-import Placeholder from "./views/Placeholder";
+import Play from "./views/Play";
 import Screen from "./views/Screen";
 
 interface Props {
@@ -63,7 +63,7 @@ export default function App({ apiUrl = defaultApiUrl(), playerTesting = __PLAYER
         )}
         {route.view === "join" && <Join key={route.token} api={api} token={route.token} />}
         {route.view === "controller" && <Controller key={route.room} api={api} room={route.room} />}
-        {route.view === "play" && <Placeholder title="Online game" id={route.room} />}
+        {route.view === "play" && <Play key={route.room} api={api} room={route.room} />}
       </main>
     </div>
   );

@@ -4,7 +4,9 @@ import WebSocket from "ws";
 
 import { PROTOCOL_VERSION, socketPath } from "../shared/protocol";
 import { Backend, startBackend } from "../test/backend";
-import { isAllowedOrigin, MAX_MESSAGES_PER_SECOND, parseOrigins } from "./socket";
+import { IncomingMessage } from "http";
+
+import { addressOf, isAllowedOrigin, MAX_MESSAGES_PER_SECOND, parseOrigins } from "./socket";
 
 describe("parseOrigins", () => {
   it("splits a comma separated list", () => {
@@ -30,6 +32,26 @@ describe("isAllowedOrigin", () => {
     expect(isAllowedOrigin("https://example.org", ["https://example.org"])).toBe(true);
     expect(isAllowedOrigin("https://evil.example", ["https://example.org"])).toBe(false);
     expect(isAllowedOrigin(undefined, ["https://example.org"])).toBe(false);
+  });
+});
+
+describe("addressOf", () => {
+  const request = (forwarded?: string) =>
+    ({
+      headers: forwarded === undefined ? {} : { "x-forwarded-for": forwarded },
+      socket: { remoteAddress: "10.0.0.7" }
+    }) as unknown as IncomingMessage;
+
+  it("is the address of the connection, whatever a header says, when there is no proxy to trust", () => {
+    expect(addressOf(request(), false)).toBe("10.0.0.7");
+    expect(addressOf(request("203.0.113.9"), false)).toBe("10.0.0.7");
+  });
+
+  it("is the first address a trusted proxy tells, and that of the connection when it tells none", () => {
+    expect(addressOf(request("203.0.113.9, 198.51.100.2"), true)).toBe("203.0.113.9");
+    expect(addressOf(request("203.0.113.9"), true)).toBe("203.0.113.9");
+    expect(addressOf(request(), true)).toBe("10.0.0.7");
+    expect(addressOf(request(""), true)).toBe("10.0.0.7");
   });
 });
 
@@ -131,5 +153,32 @@ describe("the WebSocket API", () => {
     backend = await startBackend({ allowedOrigins: [ORIGIN] });
     await expect(talk(socketPath(), "https://evil.example", 1)).rejects.toThrow("403");
     await expect(talk("/other", ORIGIN, 1)).rejects.toThrow("403");
+  });
+
+  it("takes only so many connections from one address", async () => {
+    backend = await startBackend({ maxConnectionsPerAddress: 2 });
+    const address = `${backend.url.replace("http", "ws")}${socketPath()}`;
+    const open = (url: string) =>
+      new Promise<WebSocket | null>((resolve) => {
+        const socket = new WebSocket(url);
+        socket.once("open", () => resolve(socket));
+        socket.once("error", () => resolve(null));
+      });
+    const first = await open(address);
+    const second = await open(address);
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(await open(address)).toBeNull();
+
+    // When one goes, another fits
+    await new Promise<void>((resolve) => {
+      first!.once("close", () => resolve());
+      first!.close();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const again = await open(address);
+    expect(again).not.toBeNull();
+    second!.close();
+    again!.close();
   });
 });

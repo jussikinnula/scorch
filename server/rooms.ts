@@ -2,11 +2,10 @@ import { randomBytes, randomInt } from "crypto";
 
 import {
   ClientMessage,
-  DEFAULT_MAX_PLAYERS,
-  DEFAULT_INTEREST,
   DEFAULT_MAX_WIND,
-  MAX_ARMS_LEVEL,
-  DEFAULT_ROUNDS,
+  defaultSettings,
+  HOST_GRACE,
+  LOBBY_TIME,
   ErrorCode,
   FieldState,
   JOIN_TOKEN_PERIOD,
@@ -32,13 +31,24 @@ import { DEFAULT_WEAPON, findWeapon, MAX_ITEMS, starterKit, WEAPONS } from "../s
 /** How long a room is kept when its screen is away, in milliseconds. */
 export const ROOM_TIMEOUT = 5 * 60 * 1000;
 
+/** How many rooms the server has at most: its memory is small. */
+export const MAX_ROOMS = 200;
+/** How many of them can be online rooms. */
+export const MAX_ONLINE_ROOMS = 50;
+/** How many online rooms can be created from one address at a time: one game at a time is what a player needs. */
+export const MAX_ONLINE_ROOMS_PER_ADDRESS = 1;
+/** How many rooms can be created from one address at a time. A home has one address, so this is for many screens, not for many phones. */
+export const MAX_ROOMS_PER_ADDRESS = 5;
+
 export const ROOM_ID_LENGTH = 8;
 export const JOIN_TOKEN_LENGTH = 10;
+/** The token of an online room is its link: it does not change, so it is long enough not to be guessed. */
+export const LINK_TOKEN_LENGTH = 20;
 
 /** The characters of room ids and join tokens: no i, l, o, 0 or 1, which are easy to mix up. */
 const ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 
-export interface RoomsOptions {
+export interface RoomsOptions<Member = unknown> {
   /** How often the join token of a room changes, in milliseconds. */
   tokenPeriod?: number;
   /** How long a room is kept when its screen is away, in milliseconds. */
@@ -51,6 +61,18 @@ export interface RoomsOptions {
   kit?: boolean;
   /** How long the shop is open between two rounds at most, in milliseconds. 0: there is no shop, for tests of other things. */
   shopTime?: number;
+  /** How many rooms there can be in all, how many of them online rooms, and how many from one address. */
+  maxRooms?: number;
+  maxOnlineRooms?: number;
+  /** How many online rooms can be created from one address. */
+  maxOnlineRoomsPerAddress?: number;
+  /** How long an online room waits for players in its lobby before it starts by itself or is closed, in milliseconds. */
+  lobbyTime?: number;
+  maxRoomsPerAddress?: number;
+  /** Tells the address a member connected from, for the limit of rooms from one address. Without it there is no such limit. */
+  addressOf?: (member: Member) => string | undefined;
+  /** How long the host of an online room can be disconnected before another player becomes the host, in milliseconds. */
+  hostGrace?: number;
 }
 
 interface Player<Member> {
@@ -64,6 +86,8 @@ interface Player<Member> {
   saidAt: number;
   /** When the tank of the player can fire again. */
   reloadedAt: number;
+  /** The order in which the players came into the room: the one with the smallest has been there the longest. */
+  joined: number;
   /** How many rounds of the game the player has won. */
   wins: number;
   /** The money of the player in dollars. It can be below zero. */
@@ -83,6 +107,20 @@ interface Room<Member> {
   settings: RoomSettings;
   /** In the order of their ids. */
   players: Player<Member>[];
+  /** How many players have come into the room in all. */
+  joins: number;
+  /** The order in which the rooms were created. */
+  created: number;
+  /** The address the room was created from, if it is known. */
+  creator: string | undefined;
+  /** In an online room: the id of the player who is the host, and whether the room is in the list of public games. */
+  hostId: number | null;
+  public: boolean;
+  /** In the lobby of an online room: when the game starts by itself or the room is closed, and the timer that does it. */
+  lobbyEndsAt: number;
+  lobbyTimer: ReturnType<typeof setTimeout> | null;
+  /** In an online room: passes the host on, when the host has been disconnected for too long. */
+  hostTimer: ReturnType<typeof setTimeout> | null;
   /** The connection of the screen, null while there is none. */
   screen: Member | null;
   /** The playing field, once the game has started. */
@@ -113,7 +151,8 @@ interface Room<Member> {
   /** The token before the newest one, which still lets a controller join. */
   previousToken: string | null;
   tokenChangedAt: number;
-  tokenTimer: ReturnType<typeof setInterval>;
+  /** Changes the token of a hotseat room now and then. The token of an online room does not change. */
+  tokenTimer: ReturnType<typeof setInterval> | null;
   /** Removes the room, when the screen has been away for too long. */
   removeTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -148,6 +187,15 @@ class Rooms<Member> {
   private readonly maxWind: number;
   private readonly kit: boolean;
   private readonly shopTime: number;
+  private readonly hostGrace: number;
+  private readonly maxRooms: number;
+  /** How many rooms have been created in all. */
+  private created = 0;
+  private readonly maxRoomsPerAddress: number;
+  private readonly maxOnlineRooms: number;
+  private readonly maxOnlineRoomsPerAddress: number;
+  private readonly lobbyTime: number;
+  private readonly addressOf: (member: Member) => string | undefined;
   /** Moves the projectiles of all the rooms, while there are any in the air. */
   private ticker: ReturnType<typeof setInterval> | null = null;
 
@@ -158,7 +206,7 @@ class Rooms<Member> {
   constructor(
     private readonly send: (member: Member, message: ServerMessage) => void,
     private readonly close: (member: Member) => void,
-    options: RoomsOptions = {}
+    options: RoomsOptions<Member> = {}
   ) {
     this.tokenPeriod = options.tokenPeriod ?? JOIN_TOKEN_PERIOD;
     this.roomTimeout = options.roomTimeout ?? ROOM_TIMEOUT;
@@ -166,6 +214,13 @@ class Rooms<Member> {
     this.maxWind = options.maxWind ?? DEFAULT_MAX_WIND;
     this.kit = options.kit ?? false;
     this.shopTime = options.shopTime ?? SHOP_TIME;
+    this.hostGrace = options.hostGrace ?? HOST_GRACE;
+    this.maxRooms = options.maxRooms ?? MAX_ROOMS;
+    this.maxRoomsPerAddress = options.maxRoomsPerAddress ?? MAX_ROOMS_PER_ADDRESS;
+    this.maxOnlineRooms = options.maxOnlineRooms ?? MAX_ONLINE_ROOMS;
+    this.maxOnlineRoomsPerAddress = options.maxOnlineRoomsPerAddress ?? MAX_ONLINE_ROOMS_PER_ADDRESS;
+    this.lobbyTime = options.lobbyTime ?? LOBBY_TIME;
+    this.addressOf = options.addressOf ?? (() => undefined);
   }
 
   /** How many rooms there are. */
@@ -177,7 +232,11 @@ class Rooms<Member> {
   handle(member: Member, message: ClientMessage) {
     switch (message.type) {
       case "create":
-        this.create(member, message.mode);
+        if (message.mode === "online") this.createOnline(member, message.name, message.public, message.settings);
+        else this.create(member);
+        return true;
+      case "list":
+        this.list(member);
         return true;
       case "host":
         this.host(member, message.room, message.hostKey);
@@ -241,6 +300,19 @@ class Rooms<Member> {
     const { room, player } = session;
     if (player) {
       player.member = null;
+      if (room.mode === "online") {
+        // The host is waited for a moment, in case it comes back; then another player becomes the host
+        if (player.id === room.hostId && !room.hostTimer) {
+          room.hostTimer = setTimeout(() => {
+            room.hostTimer = null;
+            this.passHost(room);
+          }, this.hostGrace);
+        }
+        // An online room that nobody is connected to is kept for a while, as a hotseat room without its screen
+        if (!room.removeTimer && room.players.every((candidate) => !candidate.member)) {
+          room.removeTimer = setTimeout(() => this.remove(room), this.roomTimeout);
+        }
+      }
     } else {
       room.screen = null;
       room.removeTimer = setTimeout(() => this.remove(room), this.roomTimeout);
@@ -256,9 +328,87 @@ class Rooms<Member> {
     this.stopTicker();
   }
 
-  private create(member: Member, mode: RoomMode) {
-    this.disconnect(member);
+  /** Whether there is room for one more room, from the address of a member. If not, the member is told so. */
+  private hasRoomFor(member: Member, mode: RoomMode) {
+    const address = this.addressOf(member);
+    const all = [...this.rooms.values()];
+    const own = address === undefined ? [] : all.filter((room) => room.creator === address);
+    const fits =
+      this.rooms.size < this.maxRooms &&
+      own.length < this.maxRoomsPerAddress &&
+      (mode !== "online" ||
+        (all.filter((room) => room.mode === "online").length < this.maxOnlineRooms &&
+          own.filter((room) => room.mode === "online").length < this.maxOnlineRoomsPerAddress));
+    if (fits) return true;
+    this.refuse(member, "busy", "create");
+    return false;
+  }
 
+  /** A hotseat room, whose host is the screen that creates it. */
+  private create(member: Member) {
+    if (!this.hasRoomFor(member, "hotseat")) return;
+    this.disconnect(member);
+    const room = this.newRoom("hotseat", member);
+    room.screen = member;
+    room.tokenTimer = setInterval(() => this.rotateToken(room), this.tokenPeriod);
+    this.sessions.set(member, { room, player: null });
+    this.welcomeScreen(room, member);
+  }
+
+  /**
+   * An online room, whose first player and host is the one who creates it. Its settings are given
+   * when it is created and stay as they are, so that those who see the room can choose it by them.
+   */
+  private createOnline(member: Member, name: string, open: boolean, settings: RoomSettings) {
+    if (!this.hasRoomFor(member, "online")) return;
+    this.disconnect(member);
+    const room = this.newRoom("online", member);
+    room.public = open;
+    // Only what is known of the settings is kept
+    const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, walls } = settings;
+    room.settings = { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, walls };
+    const player = this.addPlayer(room, member, name);
+    room.hostId = player.id;
+    this.openLobby(room);
+    this.send(member, { type: "joined", room: room.id, id: player.id, playerKey: player.key });
+    this.announce(room);
+    this.sendToken(room, member);
+  }
+
+  /**
+   * The lobby of an online room is open for a limited time, so that a room nobody comes to does not
+   * stay in the list. When the time is out the game starts with those who are there; if they are too
+   * few to play, the room is closed.
+   */
+  private openLobby(room: Room<Member>) {
+    if (room.lobbyTimer) clearTimeout(room.lobbyTimer);
+    room.lobbyEndsAt = Date.now() + this.lobbyTime;
+    room.lobbyTimer = setTimeout(() => {
+      room.lobbyTimer = null;
+      if (room.phase !== "lobby") return;
+      if (room.players.length >= MIN_PLAYERS) this.newGame(room);
+      else this.remove(room);
+    }, this.lobbyTime);
+  }
+
+  /** The public online rooms that can be joined: those in the lobby that are not full. */
+  private list(member: Member) {
+    const rooms = [...this.rooms.values()]
+      .filter((room) => room.public && room.phase === "lobby" && room.players.length < room.settings.maxPlayers)
+      // Those with the most players first: they are the nearest to starting. The older of two with as many is first.
+      .sort((a, b) => b.players.length - a.players.length || a.created - b.created)
+      .map((room) => ({
+        room: room.id,
+        token: room.token,
+        host: room.players.find((player) => player.id === room.hostId)?.name ?? "",
+        players: room.players.length,
+        settings: room.settings,
+        startsIn: Math.max(0, room.lobbyEndsAt - Date.now())
+      }));
+    this.send(member, { type: "rooms", rooms });
+  }
+
+  private newRoom(mode: RoomMode, creator: Member) {
     let id = randomId(ROOM_ID_LENGTH);
     while (this.rooms.has(id)) id = randomId(ROOM_ID_LENGTH);
 
@@ -267,20 +417,17 @@ class Rooms<Member> {
       hostKey: randomKey(),
       mode,
       phase: "lobby",
-      settings: {
-        maxPlayers: DEFAULT_MAX_PLAYERS,
-        rounds: DEFAULT_ROUNDS,
-        turns: "classic",
-        maxWind: this.maxWind,
-        cash: 0,
-        interest: DEFAULT_INTEREST,
-        armsLevel: MAX_ARMS_LEVEL,
-        traces: false,
-        changingWind: false,
-        walls: "none"
-      },
+      settings: { ...defaultSettings(), maxWind: this.maxWind },
       players: [],
-      screen: member,
+      joins: 0,
+      created: this.created++,
+      creator: this.addressOf(creator),
+      hostId: null,
+      public: false,
+      hostTimer: null,
+      lobbyEndsAt: 0,
+      lobbyTimer: null,
+      screen: null,
       field: null,
       random: Math.random,
       shots: [],
@@ -292,10 +439,10 @@ class Rooms<Member> {
       turnFired: false,
       turnEndsAt: 0,
       turnTimer: null,
-      token: this.newToken(),
+      token: this.newToken(mode === "online" ? LINK_TOKEN_LENGTH : JOIN_TOKEN_LENGTH),
       previousToken: null,
       tokenChangedAt: Date.now(),
-      tokenTimer: setInterval(() => this.rotateToken(room), this.tokenPeriod),
+      tokenTimer: null,
       removeTimer: null,
       ready: new Set(),
       shopEndsAt: 0,
@@ -303,8 +450,7 @@ class Rooms<Member> {
     };
     this.rooms.set(id, room);
     this.tokens.set(room.token, room);
-    this.sessions.set(member, { room, player: null });
-    this.welcomeScreen(room, member);
+    return room;
   }
 
   private host(member: Member, id: string, hostKey: string) {
@@ -331,6 +477,16 @@ class Rooms<Member> {
     if (room.players.length >= room.settings.maxPlayers) return this.refuse(member, "room-full", "join");
     this.disconnect(member);
 
+    const player = this.addPlayer(room, member, name);
+    this.send(member, { type: "joined", room: room.id, id: player.id, playerKey: player.key });
+    if (room.mode === "online") this.sendToken(room, member);
+    this.startIfFull(room);
+    this.announce(room);
+    this.sendField(room);
+  }
+
+  /** Makes a member a new player of a room. */
+  private addPlayer(room: Room<Member>, member: Member, name: string) {
     // The lowest free number, so that the colours of those who left are used again
     let id = 0;
     while (room.players.some((player) => player.id === id)) id += 1;
@@ -342,6 +498,7 @@ class Rooms<Member> {
       member,
       saidAt: -Infinity,
       reloadedAt: 0,
+      joined: room.joins++,
       wins: 0,
       money: 0,
       weapons: {},
@@ -350,11 +507,7 @@ class Rooms<Member> {
     room.players.push(player);
     room.players.sort((a, b) => a.id - b.id);
     this.sessions.set(member, { room, player });
-
-    this.send(member, { type: "joined", room: room.id, id, playerKey: player.key });
-    this.startIfFull(room);
-    this.announce(room);
-    this.sendField(room);
+    return player;
   }
 
   private resume(member: Member, id: string, playerKey: string) {
@@ -380,9 +533,23 @@ class Rooms<Member> {
       if (player.member) this.replace(player.member);
       player.member = member;
       this.sessions.set(member, { room, player });
+      // Someone is in the room again, and a host that came back in time stays the host
+      if (room.mode === "online") {
+        if (room.removeTimer) clearTimeout(room.removeTimer);
+        room.removeTimer = null;
+        if (player.id === room.hostId && room.hostTimer) {
+          clearTimeout(room.hostTimer);
+          room.hostTimer = null;
+        }
+      }
     }
     this.send(member, { type: "joined", room: room.id, id: player.id, playerKey: player.key });
     this.announce(room);
+    if (room.mode === "online") {
+      // An online player shows the field itself: it gets the link of the room and the field as it is now
+      this.sendToken(room, member);
+      if (room.field) this.send(member, { type: "field", field: room.field });
+    }
     this.sendOwnAim(room, player);
     if (room.phase !== "lobby") this.sendWeapons(player);
   }
@@ -395,10 +562,26 @@ class Rooms<Member> {
     this.removePlayer(session.room, session.player);
   }
 
+  /**
+   * The host of an online room has gone, or has been disconnected for too long: the player who has
+   * been in the room the longest becomes the host, one who is connected if there is one.
+   */
+  private passHost(room: Room<Member>) {
+    const old = room.players.find((player) => player.id === room.hostId);
+    if (old?.member) return;
+    const others = room.players.filter((player) => player !== old).sort((a, b) => a.joined - b.joined);
+    const next = others.find((player) => player.member) ?? (old ? null : others[0]);
+    if (!next) return;
+    room.hostId = next.id;
+    this.announce(room);
+  }
+
   private changeSettings(member: Member, settings: RoomSettings) {
     const room = this.roomOfHost(member, "settings");
     if (!room) return;
     if (room.phase !== "lobby") return this.refuse(member, "wrong-phase", "settings");
+    // The settings of an online room were given when it was created, and others may have chosen it by them
+    if (room.mode === "online") return this.refuse(member, "not-allowed", "settings");
     if (settings.maxPlayers < room.players.length) return this.refuse(member, "not-allowed", "settings");
 
     // Only what is known of the settings is kept
@@ -413,7 +596,8 @@ class Rooms<Member> {
     const room = this.roomOfHost(member, "kick");
     if (!room) return;
     const player = room.players.find((candidate) => candidate.id === id);
-    if (!player) return this.refuse(member, "not-allowed", "kick");
+    // The host of an online room leaves as anyone does, with "leave"
+    if (!player || player.member === member) return this.refuse(member, "not-allowed", "kick");
 
     if (player.member) {
       this.sessions.delete(player.member);
@@ -443,6 +627,7 @@ class Rooms<Member> {
     room.round = 0;
     this.setTurn(room, null);
     for (const player of room.players) player.wins = 0;
+    if (room.mode === "online") this.openLobby(room);
     this.startIfFull(room);
     this.announce(room);
     this.sendField(room);
@@ -564,6 +749,8 @@ class Rooms<Member> {
 
   /** A new game starts: everyone gets the money of the start, and no weapons but the one everyone always has. */
   private newGame(room: Room<Member>) {
+    if (room.lobbyTimer) clearTimeout(room.lobbyTimer);
+    room.lobbyTimer = null;
     for (const player of room.players) {
       player.money = room.settings.cash;
       player.weapons = this.kit ? starterKit() : {};
@@ -754,9 +941,12 @@ class Rooms<Member> {
 
   /**
    * Those who show the playing field of a room, and so are told what happens on it: the screen of a
-   * hotseat room. In an online room they will be the players, each of whom has the field on its own device.
+   * hotseat room, and every connected player of an online room, each of whom has the field on its own device.
    */
   private viewers(room: Room<Member>): Member[] {
+    if (room.mode === "online") {
+      return room.players.flatMap((player) => (player.member ? [player.member] : []));
+    }
     return room.screen ? [room.screen] : [];
   }
 
@@ -767,10 +957,10 @@ class Rooms<Member> {
 
   /**
    * Whether a member is the host of its room: the one who changes the settings, starts the game and
-   * removes players. In a hotseat room the host is the screen. In an online room it will be one of
-   * the players.
+   * removes players. In a hotseat room the host is the screen, in an online room one of the players.
    */
   private isHost(session: Session<Member>) {
+    if (session.room.mode === "online") return session.player !== null && session.player.id === session.room.hostId;
     return session.player === null;
   }
 
@@ -797,12 +987,23 @@ class Rooms<Member> {
 
   private removePlayer(room: Room<Member>, player: Player<Member>) {
     room.players = room.players.filter((candidate) => candidate !== player);
+    if (room.mode === "online") {
+      // An online game goes on to its end with those who are left; when the last one has gone, so has the room
+      if (room.players.length === 0) return this.remove(room);
+      if (player.id === room.hostId) {
+        if (room.hostTimer) clearTimeout(room.hostTimer);
+        room.hostTimer = null;
+        this.passHost(room);
+      }
+    }
     if (room.field) removeTank(room.field, player.id);
     // The turn of a player who went passes on, unless a shot of that turn is still in the air
     if (room.turn === player.id && !room.turnFired) this.passTurn(room);
     else this.announce(room);
     this.sendField(room);
     this.closeShopIfReady(room);
+    // The one who went may have been the last one in the way of the end of the round
+    if (room.phase === "playing") this.endRoundIfOver(room);
   }
 
   /** The game starts by itself when the room is full. */
@@ -875,9 +1076,9 @@ class Rooms<Member> {
     return name;
   }
 
-  private newToken() {
-    let token = randomId(JOIN_TOKEN_LENGTH);
-    while (this.tokens.has(token)) token = randomId(JOIN_TOKEN_LENGTH);
+  private newToken(length = JOIN_TOKEN_LENGTH) {
+    let token = randomId(length);
+    while (this.tokens.has(token)) token = randomId(length);
     return token;
   }
 
@@ -891,7 +1092,8 @@ class Rooms<Member> {
   }
 
   private sendToken(room: Room<Member>, screen: Member) {
-    const expiresIn = Math.max(0, room.tokenChangedAt + this.tokenPeriod - Date.now());
+    // The token of an online room does not change
+    const expiresIn = room.tokenTimer ? Math.max(0, room.tokenChangedAt + this.tokenPeriod - Date.now()) : 0;
     this.send(screen, { type: "token", token: room.token, expiresIn });
   }
 
@@ -918,6 +1120,9 @@ class Rooms<Member> {
       settings: room.settings,
       players,
       screen: room.screen !== null,
+      host: room.hostId,
+      public: room.public,
+      startsIn: room.lobbyTimer && room.phase === "lobby" ? Math.max(0, room.lobbyEndsAt - Date.now()) : null,
       round: room.round,
       turn: room.turn === null ? null : { player: room.turn, time: Math.max(0, room.turnEndsAt - Date.now()) },
       wind: room.phase === "playing" && room.field ? room.field.wind : 0,
@@ -933,7 +1138,9 @@ class Rooms<Member> {
   }
 
   private remove(room: Room<Member>) {
-    clearInterval(room.tokenTimer);
+    if (room.tokenTimer) clearInterval(room.tokenTimer);
+    if (room.hostTimer) clearTimeout(room.hostTimer);
+    if (room.lobbyTimer) clearTimeout(room.lobbyTimer);
     if (room.removeTimer) clearTimeout(room.removeTimer);
     if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
     if (room.turnTimer) clearTimeout(room.turnTimer);

@@ -52,8 +52,9 @@ describe("the app with the backend", () => {
       window.location.hash = "#/play/abc";
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     });
-    expect(screen.getByRole("heading", { name: "Online game" })).toBeInTheDocument();
-    expect(screen.getByText("abc")).toBeInTheDocument();
+    // The view of an online game, which waits for the server here
+    expect(document.querySelector(".app--play")).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "Hotseat" })).toBeNull();
   });
 
   describe("with a backend of another version of the protocol", () => {

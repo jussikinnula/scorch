@@ -1,6 +1,6 @@
 # Online play: the design of phase 3
 
-This is the plan of the online mode, written before it is built. It takes what [PLAN.md](PLAN.md) already decides (2.1 "Online", 4.7, 4.8) and works it out against the code as it is after phase 1: what is reused, what is new, in which steps it is built, and which questions are still open. Nothing here is implemented yet, except where it says so.
+This is the plan of the online mode, written before it is built. It takes what [PLAN.md](PLAN.md) already decides (2.1 "Online", 4.7, 4.8) and works it out against the code as it is after phase 1: what is reused, what is new, in which steps it is built, and which questions are still open. Steps 1 to 3 below are built, and the server part of step 5 (the list of public games). The rest is still a plan.
 
 ## 1. What online is
 
@@ -47,11 +47,11 @@ Two details follow:
 
 ### 3.3 Creating, finding and joining
 
-New and changed messages (the names can still change):
+New and changed messages (**done**, as described in [PROTOCOL.md](PROTOCOL.md)):
 
 | From   | Message                                                                | Meaning                                                                                       |
 | ------ | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Client | `create { mode: "online", name, public }`                              | Creates an online room. The creator is its first player and its host. Answered with `joined`. |
+| Client | `create { mode: "online", name, public, settings }`                    | Creates an online room. The creator is its first player and its host. Answered with `joined`. |
 | Client | `list`                                                                 | Asks for the public rooms that can be joined. Answered with `rooms`.                          |
 | Server | `rooms { rooms: [{ room, token, host, players, maxPlayers, turns }] }` | The public rooms that are in the lobby and not full.                                          |
 | Client | `join { token, name }`                                                 | As now. The token of an online room does not rotate: it is the link.                          |
@@ -68,43 +68,51 @@ A hotseat game is told to be paused while its screen is away. An online room has
 ## 4. What changes in the frontend
 
 - **The front page** gets a second way to start: "Play online" beside "Start a hotseat game", with a name, a choice of public or private, and the list of public games to join.
-- **`#/play/<room>`** (a placeholder today) becomes the online view: in the lobby the list of players, the settings for the host and the link to copy; in a round the `Field` with the controls of the controller under it; between rounds the shop; at the end the standings.
-- **The layout** is the hard part. On a phone held upright the field is small; held sideways there is little room for the controls. The plan: the field takes the full width at the top, the compact controls of the phone layout are under it, and on a wide screen the controls are in a column beside the field. On a desktop the keys work too: the arrows turn the turret and set the power, the space bar fires (PLAN.md 4.7).
+- **`#/play/<room>`** is the online view: in the lobby the list of players, the settings of the game to read and the link to copy; in a round the `Field` with the controls of the controller under it; between rounds the shop; at the end the standings.
+- **The layout of a round** is that of the original (**done**): a narrow bar at the top with what the player needs to aim and fire (the name, the energy, the wind, the angle, the power, the weapon and the fire button), and the playing field under it with the rest of the window. The angle and the power are numbers with buttons that repeat while they are held, so the bar works by touch too; on a phone the bar wraps to a few rows, and the phone is best held sideways. On a desktop the keys work as in the original: the arrows turn the turret and set the power (with Shift in bigger steps, Page Up and Page Down in bigger still), the space bar fires and Tab changes the weapon.
 - **The settings of the lobby** are a component of their own (`LobbySettings`), used by the screen and later by the online host. **This part is done.**
 
 ## 5. Protections (PLAN.md 4.8)
 
 Hotseat is played among people in one room. A public online game is not, so these come with it:
 
-| Protection                                    | State                                                           |
-| --------------------------------------------- | --------------------------------------------------------------- |
-| Every input checked on the server             | Done: type guards, the turn, the reload, what the player has.   |
-| A limit on messages per connection            | Done: 40 a second.                                              |
-| The host can remove a player                  | Done for the screen; follows the host.                          |
-| A limit on the length and characters of names | Done. A word filter is new, for names and speech bubbles alike. |
-| The host can mute a player's speech bubbles   | New.                                                            |
-| A limit on rooms and connections per address  | New. Behind Render the address comes from `X-Forwarded-For`.    |
-| A limit on the number of rooms in all         | New: the memory of the free plan is small.                      |
+| Protection                                    | State                                                                                                                           |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Every input checked on the server             | Done: type guards, the turn, the reload, what the player has.                                                                   |
+| A limit on messages per connection            | Done: 40 a second.                                                                                                              |
+| The host can remove a player                  | Done for the screen; follows the host.                                                                                          |
+| A limit on the length and characters of names | Done. A word filter is new, for names and speech bubbles alike.                                                                 |
+| The host can mute a player's speech bubbles   | New.                                                                                                                            |
+| A limit on rooms and connections per address  | Done: 5 rooms and 60 connections. Behind Render the address comes from `X-Forwarded-For`, which a client can also write itself. |
+| A limit on the number of rooms in all         | Done: 200.                                                                                                                      |
 
 ## 6. Steps
 
 Each step can be merged and tried on its own, and hotseat keeps working after each.
 
 1. **Viewers and host on the server, and the settings of the lobby as a component**, with no new messages. **Done**: hotseat is unchanged, and the tests passed as they were.
-2. **Online rooms on the server**: `create { mode: "online" }`, the fixed token, players as viewers, the host passing on, removing an empty room. Tested with bare connections, as the rooms are today. The protocol version is raised.
-3. **The online view**: `#/play/<room>` with the lobby and a round, first for a wide screen. Two browser windows can play a whole game through a private link.
-4. **The layout for phones**, and the keys for desktops.
-5. **Public rooms**: `list`, the list on the front page, and the limits per address.
+2. **Online rooms on the server** (**done**): `create { mode: "online" }`, the fixed token, players as viewers, the host passing on, removing an empty room. Tested with bare connections, as the rooms are today. The protocol version is raised.
+3. **The online view** (**done**): `#/play/<room>` with the lobby and a round, first for a wide screen. Two browser windows can play a whole game through a private link.
+4. **The layout of a round as in the original, and the keys** (**done**).
+5. **Public rooms** (**done**): `list`, the list on the front page, and the limits per address.
 6. **The word filter and muting.**
 
-## 7. Open questions
+## 7. Decided
 
-These need a decision before the step they belong to. None of them blocks step 1.
+- **The host plays as everyone else does.** Being the host matters only for setting the game up: the settings, starting, removing players.
+- **An online game goes on to its end** with those who are left, also with one player. When the last player leaves, the room is gone.
+- **A host that loses its connection is waited for ten seconds** (`HOST_GRACE`). After that the player who has been in the room the longest becomes the host. A host that leaves is replaced at once.
+- **The settings of an online room are fixed when it is created.** The one who creates the room chooses them on the front page, and they cannot be changed after that: those who see the room in the list choose it by its settings.
+- **The list of public games** shows the settings of each, has those with the most players first, and can be narrowed to classic or live games. A full room has started and is not in it.
+- **The lobby of an online room is open for five minutes.** Then the game starts by itself with those who are there, or the room is closed if nobody else came. So a room nobody comes to does not stay in the list.
+- **One address can have one online room at a time**, and five rooms in all.
+- **There are at most 50 online rooms** at a time. This and the other limits are defaults that the environment of the server can change.
 
-1. **Does the host of an online game play?** The plan says the creator is a player and the host. An alternative is a host who only watches. (Step 2.)
-2. **What happens to a game when players leave in the middle?** With one player left the round ends as it does now; should a game of ten rounds go on with one player, or end at once? (Step 2.)
-3. **How long is a disconnected host waited for** before the role passes on: at once, or after e.g. 30 seconds? (Step 2.)
-4. **Is the shop time the same online?** Sixty seconds is short among friends in one room and long among strangers. (Step 3.)
-5. **Can a public room be watched** without playing? A spectator mode is in phase 5; the list could show games in progress then. (Step 5.)
-6. **Which words does the filter refuse**, and in which languages? (Step 6.)
-7. **The free plan of Render sleeps** when nobody is connected, and waking takes tens of seconds. For hotseat that is a wait once at the start; for a list of public games it means the list is always empty after a quiet time. Is a paid plan in the picture when online opens? (Step 5.)
+## 8. Open questions
+
+These need a decision before the step they belong to.
+
+1. **Is the shop time the same online?** Sixty seconds is short among friends in one room and long among strangers.
+2. **Can a public room be watched** without playing? A spectator mode is in phase 5; the list could show games in progress then. (Step 5.)
+3. **Which words does the filter refuse**, and in which languages? (Step 6.)
+4. **The free plan of Render sleeps** when nobody is connected, and waking takes tens of seconds. For hotseat that is a wait once at the start; for a list of public games it means the list is always empty after a quiet time. Is a paid plan in the picture when online opens? (Step 5.)
