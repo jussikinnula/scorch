@@ -20,7 +20,7 @@ export const SOCKET_PATH = "/ws";
  * A client tells its version in the address it connects to (see socketPath), the server in its
  * greeting. The test of this file fails when the messages change and the version does not.
  */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 /** The name of the part of the address of the WebSocket API where a client tells its version. */
 export const PROTOCOL_PARAMETER = "protocol";
@@ -96,6 +96,14 @@ export type RoomPhase = "lobby" | "playing" | "shop" | "finished";
  */
 export type TurnMode = "classic" | "live";
 
+/**
+ * What the edges of the field do to a projectile (the walls of the original):
+ * - none: it flies out. Past a side it is followed for a while and then gone; above the field it comes back down.
+ * - rubber: it bounces back from the sides and from the top of the field.
+ * - wraparound: what leaves from one side comes in from the other.
+ */
+export type WallMode = "none" | "rubber" | "wraparound";
+
 export interface RoomSettings {
   /** The room is full, and in the lobby the game starts by itself, when this many have joined. */
   maxPlayers: number;
@@ -115,6 +123,9 @@ export interface RoomSettings {
    * a Tracer always does (Trace Paths).
    */
   traces: boolean;
+  /** Whether the wind changes a little after every shot of a round (Changing Wind). */
+  changingWind: boolean;
+  walls: WallMode;
 }
 
 export interface PlayerInfo {
@@ -147,7 +158,8 @@ export interface RoomState {
   turn: { player: number; time: number } | null;
   /**
    * The wind of the round that is being played: how hard it blows, with a sign for the way. Positive
-   * blows to the right. It pushes everything in the air sideways (shared/sim/shots.ts). 0 outside a round.
+   * blows to the right. It pushes everything in the air sideways (shared/sim/shots.ts). 0 outside a
+   * round. With Changing Wind on it changes during the round, and the state is sent again when it does.
    */
   wind: number;
   /**
@@ -208,6 +220,8 @@ export interface FieldState {
   tanks: TankState[];
   /** The wind of the round, as in the state of the room. */
   wind: number;
+  /** What the edges of the field do to a projectile, as in the settings of the room. */
+  walls: WallMode;
 }
 
 // The messages
@@ -278,6 +292,11 @@ export type ClientMessage =
   | { type: "weapon"; weapon: string }
   /** In the shop: a player buys a bundle of a weapon. Answered with "weapons"; the money is in the state of the room. */
   | { type: "buy"; weapon: string }
+  /**
+   * In the shop: a player sells a bundle of a weapon back, or what it has left of one, for less than
+   * it costs. Answered with "weapons"; the money is in the state of the room.
+   */
+  | { type: "sell"; weapon: string }
   /** In the shop: a player has bought what it wants. The next round starts when everyone has said so. */
   | { type: "ready" }
   /** A player fires the tank, with the aim and the weapon it has. */
@@ -340,7 +359,8 @@ function isText(value: unknown, maxLength: number): value is string {
 
 export function isRoomSettings(value: unknown): value is RoomSettings {
   if (typeof value !== "object" || value === null) return false;
-  const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces } = value as RoomSettings;
+  const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, walls } =
+    value as RoomSettings;
   return (
     isInteger(maxPlayers, MIN_PLAYERS, MAX_PLAYERS) &&
     isInteger(rounds, MIN_ROUNDS, MAX_ROUNDS) &&
@@ -349,6 +369,8 @@ export function isRoomSettings(value: unknown): value is RoomSettings {
     isInteger(interest, 0, MAX_INTEREST) &&
     isInteger(armsLevel, 0, MAX_ARMS_LEVEL) &&
     typeof traces === "boolean" &&
+    typeof changingWind === "boolean" &&
+    (walls === "none" || walls === "rubber" || walls === "wraparound") &&
     (turns === "classic" || turns === "live")
   );
 }
@@ -390,6 +412,7 @@ export function isClientMessage(value: unknown): value is ClientMessage {
     }
     case "weapon":
     case "buy":
+    case "sell":
       return isId(message.weapon);
     case "say":
       return isText(message.text, MAX_SAY_LENGTH);

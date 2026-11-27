@@ -28,7 +28,9 @@ describe("isClientMessage", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       },
       { type: "lobby" },
@@ -42,6 +44,8 @@ describe("isClientMessage", () => {
     ];
     expect(isClientMessage({ type: "weapon", weapon: "baby-nuke" })).toBe(true);
     expect(isClientMessage({ type: "buy", weapon: "missile" })).toBe(true);
+    expect(isClientMessage({ type: "sell", weapon: "missile" })).toBe(true);
+    expect(isClientMessage({ type: "sell" })).toBe(false);
     expect(isClientMessage({ type: "ready" })).toBe(true);
     expect(isClientMessage({ type: "buy" })).toBe(false);
     for (const message of messages) expect(isClientMessage(message), JSON.stringify(message)).toBe(true);
@@ -75,7 +79,9 @@ describe("isClientMessage", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       },
       {
@@ -88,7 +94,9 @@ describe("isClientMessage", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       },
       { type: "settings", settings: { maxPlayers: 8 } },
@@ -103,7 +111,9 @@ describe("isClientMessage", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       },
       {
@@ -116,7 +126,9 @@ describe("isClientMessage", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       },
       {
@@ -129,7 +141,9 @@ describe("isClientMessage", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       },
       { type: "kick" },
@@ -174,7 +188,9 @@ describe("isRoomSettings", () => {
         cash: 0,
         interest: 5,
         armsLevel: 4,
-        traces: false
+        traces: false,
+        changingWind: false,
+        walls: "none"
       })
     ).toBe(true);
     expect(
@@ -186,7 +202,9 @@ describe("isRoomSettings", () => {
         cash: 0,
         interest: 5,
         armsLevel: 4,
-        traces: false
+        traces: false,
+        changingWind: false,
+        walls: "none"
       })
     ).toBe(true);
     expect(isRoomSettings({ maxPlayers: 2, rounds: 1 })).toBe(false);
@@ -199,7 +217,9 @@ describe("isRoomSettings", () => {
         cash: 0,
         interest: 5,
         armsLevel: 4,
-        traces: false
+        traces: false,
+        changingWind: false,
+        walls: "none"
       })
     ).toBe(true);
     expect(
@@ -211,7 +231,9 @@ describe("isRoomSettings", () => {
         cash: 0,
         interest: 5,
         armsLevel: 4,
-        traces: false
+        traces: false,
+        changingWind: false,
+        walls: "none"
       })
     ).toBe(true);
     for (const maxWind of [undefined, -1, 501, 0.5, "200"]) {
@@ -229,7 +251,9 @@ describe("isRoomSettings", () => {
         cash: 1000000,
         interest: 5,
         armsLevel: 4,
-        traces: false
+        traces: false,
+        changingWind: false,
+        walls: "none"
       })
     ).toBe(true);
     expect(
@@ -241,7 +265,9 @@ describe("isRoomSettings", () => {
         cash: 0,
         interest: 5,
         armsLevel: 4,
-        traces: false
+        traces: false,
+        changingWind: false,
+        walls: "none"
       })
     ).toBe(false);
     expect(isRoomSettings({ maxPlayers: 8, rounds: 2.5 })).toBe(false);
@@ -259,15 +285,38 @@ describe("the settings of the economy", () => {
     cash: 0,
     interest: 5,
     armsLevel: 4,
-    traces: false
+    traces: false,
+    changingWind: false,
+    walls: "none"
   };
 
   it("have an interest of 0 to 30 per cent and an arms level of 0 to 4", () => {
     expect(isRoomSettings(settings)).toBe(true);
-    expect(isRoomSettings({ ...settings, interest: 30, armsLevel: 0, traces: false })).toBe(true);
+    expect(
+      isRoomSettings({ ...settings, interest: 30, armsLevel: 0, traces: false, changingWind: false, walls: "none" })
+    ).toBe(true);
     for (const interest of [undefined, -1, 31, 2.5]) expect(isRoomSettings({ ...settings, interest })).toBe(false);
     for (const armsLevel of [undefined, -1, 5, 1.5])
-      expect(isRoomSettings({ ...settings, armsLevel, traces: false })).toBe(false);
+      expect(isRoomSettings({ ...settings, armsLevel, traces: false, changingWind: false, walls: "none" })).toBe(false);
+  });
+});
+
+describe("the walls of a room", () => {
+  const settings = {
+    maxPlayers: 8,
+    rounds: 10,
+    turns: "live",
+    maxWind: 0,
+    cash: 0,
+    interest: 5,
+    armsLevel: 4,
+    traces: false,
+    changingWind: false
+  };
+
+  it("are none, rubber or wraparound", () => {
+    for (const walls of ["none", "rubber", "wraparound"]) expect(isRoomSettings({ ...settings, walls })).toBe(true);
+    for (const walls of [undefined, "concrete", "", 1]) expect(isRoomSettings({ ...settings, walls })).toBe(false);
   });
 });
 
@@ -290,7 +339,8 @@ describe("the version of the protocol", () => {
     8: "1c3dc1ab37d3fe99",
     9: "d842a2c0ed112fef",
     10: "95a0e636ae33ac22",
-    11: "81d59318b615d6a9"
+    11: "81d59318b615d6a9",
+    12: "99583e162f352c17"
   };
 
   it("is raised when the protocol changes", () => {

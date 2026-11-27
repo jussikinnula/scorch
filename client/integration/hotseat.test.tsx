@@ -167,9 +167,9 @@ describe("a hotseat game", () => {
       bob.send({ type: "aim", angle: 135 });
       await vi.waitFor(() => expect(screen.getByLabelText("Aim of Bob")).toHaveTextContent("45° ← · 900"), FIND);
 
-      // A shot steeply up at low power lands beside the tank
+      // A shot straight up at low power comes down on the tank
       expect(screen.getByText("Projectiles in the air: 0")).toBeInTheDocument();
-      bob.send({ type: "aim", angle: 80, power: 100 });
+      bob.send({ type: "aim", angle: 90, power: 100 });
       bob.send({ type: "fire" });
       expect(await screen.findByText("Projectiles in the air: 1", {}, FIND)).toBeInTheDocument();
       expect(await screen.findByText("Projectiles in the air: 0", {}, FIND)).toBeInTheDocument();
@@ -233,6 +233,7 @@ describe("a hotseat game", () => {
       await screen.findByRole("img", { name: "The playing field" }, FIND);
 
       // Bob fires straight up, and the shot comes down on his own tank
+      bob.send({ type: "weapon", weapon: "baby-nuke" });
       bob.send({ type: "aim", angle: 90, power: 100 });
       bob.send({ type: "fire" });
       const result = await screen.findByRole("alert", {}, FIND);
@@ -325,7 +326,9 @@ describe("a hotseat game", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       window.location.hash = `#/join/${token}`;
@@ -498,10 +501,10 @@ describe("a hotseat game", () => {
       expect(await screen.findByLabelText("Energy", {}, FIND)).toHaveTextContent("100");
       expect(screen.getByLabelText("Power")).toHaveAttribute("max", "1000");
 
-      // Steeply at low power: the shot lands beside the tank
+      // Straight up at low power: the shot comes down on the tank
       const { angle } = (await host.next("field")).field.tanks[0];
       const turn = screen.getByRole("button", { name: angle < 90 ? "Turn the turret left" : "Turn the turret right" });
-      for (let degrees = 20; degrees > 0; degrees--) fireEvent.click(turn);
+      for (let degrees = 30; degrees > 0; degrees--) fireEvent.click(turn);
       fireEvent.change(screen.getByLabelText("Power"), { target: { value: "100" } });
       fireEvent.click(screen.getByRole("button", { name: "Fire" }));
 
@@ -525,12 +528,15 @@ describe("a hotseat game", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       host.send({ type: "start" });
       await screen.findByLabelText("Energy", {}, FIND);
 
+      bob.send({ type: "weapon", weapon: "baby-nuke" });
       bob.send({ type: "aim", angle: 90, power: 100 });
       bob.send({ type: "fire" });
       expect(await screen.findByRole("alert", {}, FIND)).toHaveTextContent(
@@ -556,7 +562,9 @@ describe("a hotseat game", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       await joinAs("Ann");
@@ -678,7 +686,9 @@ describe("a hotseat game", () => {
           cash: 10000,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       window.location.hash = `#/join/${token}`;

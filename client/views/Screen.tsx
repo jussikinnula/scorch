@@ -433,6 +433,36 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
               +
             </button>
           </div>
+          <div className="stepper" role="group" aria-label="Walls">
+            <span>Walls</span>
+            {(["none", "rubber", "wraparound"] as const).map((walls) => (
+              <button
+                key={walls}
+                className={`button button--small${settings.walls === walls ? " button--chosen" : ""}`}
+                aria-pressed={settings.walls === walls}
+                onClick={() => change({ walls })}
+              >
+                {{ none: "None", rubber: "Rubber", wraparound: "Wraparound" }[walls]}
+              </button>
+            ))}
+          </div>
+          <div className="stepper" role="group" aria-label="Changing wind">
+            <span>Changing wind</span>
+            <button
+              className={`button button--small${settings.changingWind ? "" : " button--chosen"}`}
+              aria-pressed={!settings.changingWind}
+              onClick={() => change({ changingWind: false })}
+            >
+              Off
+            </button>
+            <button
+              className={`button button--small${settings.changingWind ? " button--chosen" : ""}`}
+              aria-pressed={settings.changingWind}
+              onClick={() => change({ changingWind: true })}
+            >
+              On
+            </button>
+          </div>
           <div className="stepper" role="group" aria-label="Trace paths">
             <span>Trace paths</span>
             <button

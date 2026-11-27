@@ -1,4 +1,4 @@
-import { FieldState, MAX_ENERGY, MAX_POWER, TankState } from "../protocol";
+import { FieldState, MAX_ENERGY, MAX_POWER, TankState, WallMode } from "../protocol";
 import { Random } from "./random";
 import { flatten, generateTerrain, groundAt } from "./terrain";
 
@@ -48,17 +48,31 @@ export function drawWind(maxWind: number, random: Random) {
   return random() < 0.5 ? -strength : strength;
 }
 
+/** The most the wind changes at a time when it changes during a round, either way. */
+export const WIND_CHANGE = 5;
+
+/**
+ * The wind after it has changed a little, as it does after every shot with Changing Wind on. In a
+ * game of the original the wind moved by -5 to 5 between two shots, any of them as often
+ * (docs/ORIGINAL.md, "Wind"). It stays within the strongest wind allowed.
+ */
+export function changeWind(wind: number, maxWind: number, random: Random) {
+  const change = Math.floor(random() * (2 * WIND_CHANGE + 1)) - WIND_CHANGE;
+  return Math.min(maxWind, Math.max(-maxWind, wind + change));
+}
+
 /**
  * A new playing field: a terrain, and the tanks of the players spread more or less evenly across
  * it, in a random order.
  */
-export function createField(players: number[], random: Random, maxWind = 0): FieldState {
+export function createField(players: number[], random: Random, maxWind = 0, walls: WallMode = "none"): FieldState {
   const field: FieldState = {
     width: FIELD_WIDTH,
     height: FIELD_HEIGHT,
     terrain: generateTerrain(FIELD_WIDTH, FIELD_HEIGHT, random),
     tanks: [],
-    wind: 0
+    wind: 0,
+    walls
   };
 
   // The order of the tanks from the left is shuffled

@@ -24,9 +24,9 @@ import {
   TURN_TIME
 } from "../shared/protocol";
 import { launch, Shot, stepShots, STEPS_PER_SECOND } from "../shared/sim/shots";
-import { createField, removeTank } from "../shared/sim/field";
-import { createRandom } from "../shared/sim/random";
-import { damageReward, isForSale, ROUND_WIN, SHOP_TIME, withInterest } from "../shared/economy";
+import { changeWind, createField, removeTank } from "../shared/sim/field";
+import { createRandom, Random } from "../shared/sim/random";
+import { damageReward, isForSale, ROUND_WIN, sellCount, sellPrice, SHOP_TIME, withInterest } from "../shared/economy";
 import { DEFAULT_WEAPON, findWeapon, MAX_ITEMS, starterKit, WEAPONS } from "../shared/weapons";
 
 /** How long a room is kept when its screen is away, in milliseconds. */
@@ -87,6 +87,8 @@ interface Room<Member> {
   screen: Member | null;
   /** The playing field, once the game has started. */
   field: FieldState | null;
+  /** What is random in the round that is being played is drawn from this. */
+  random: Random;
   /** The projectiles in the air. */
   shots: Shot[];
   nextShot: number;
@@ -213,6 +215,9 @@ class Rooms<Member> {
       case "buy":
         this.buy(member, message.weapon);
         return true;
+      case "sell":
+        this.sell(member, message.weapon);
+        return true;
       case "ready":
         this.ready(member);
         return true;
@@ -270,11 +275,14 @@ class Rooms<Member> {
         cash: 0,
         interest: DEFAULT_INTEREST,
         armsLevel: MAX_ARMS_LEVEL,
-        traces: false
+        traces: false,
+        changingWind: false,
+        walls: "none"
       },
       players: [],
       screen: member,
       field: null,
+      random: Math.random,
       shots: [],
       nextShot: 1,
       round: 0,
@@ -393,8 +401,9 @@ class Rooms<Member> {
     if (room.phase !== "lobby") return this.refuse(member, "wrong-phase", "settings");
     if (settings.maxPlayers < room.players.length) return this.refuse(member, "not-allowed", "settings");
 
-    const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces } = settings;
-    room.settings = { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces };
+    // Only what is known of the settings is kept
+    const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, walls } = settings;
+    room.settings = { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, walls };
     this.startIfFull(room);
     this.announce(room);
     this.sendField(room);
@@ -612,6 +621,26 @@ class Rooms<Member> {
     this.announce(room);
   }
 
+  private sell(member: Member, id: string) {
+    const session = this.sessions.get(member);
+    if (!session?.player) return this.refuse(member, "not-allowed", "sell");
+    const { room, player } = session;
+    if (room.phase !== "shop") return this.refuse(member, "wrong-phase", "sell");
+    const weapon = findWeapon(id);
+    const owned = player.weapons[id] ?? 0;
+    if (!weapon || owned <= 0) return this.refuse(member, "no-weapon", "sell");
+
+    const count = sellCount(weapon, owned);
+    player.money += sellPrice(weapon, count);
+    if (owned > count) player.weapons[id] = owned - count;
+    else {
+      delete player.weapons[id];
+      if (player.weapon === id) player.weapon = DEFAULT_WEAPON;
+    }
+    this.sendWeapons(player);
+    this.announce(room);
+  }
+
   private ready(member: Member) {
     const session = this.sessions.get(member);
     if (!session?.player) return this.refuse(member, "not-allowed", "ready");
@@ -698,6 +727,11 @@ class Rooms<Member> {
       }
       flying ||= room.shots.length > 0;
       this.endRoundIfOver(room);
+      // With Changing Wind the wind moves a little whenever the air has cleared after a shot
+      if (room.settings.changingWind && room.shots.length === 0 && !room.nextRoundTimer) {
+        room.field.wind = changeWind(room.field.wind, room.settings.maxWind, room.random);
+        this.announce(room);
+      }
       // In the classic mode the turn passes when the shot of the turn is over
       if (room.turnFired && room.shots.length === 0 && !room.nextRoundTimer) this.passTurn(room);
     }
@@ -760,6 +794,7 @@ class Rooms<Member> {
   private begin(room: Room<Member>) {
     // Each round has a terrain of its own, also when the seed is fixed for a test
     const random = createRandom((this.seed ?? randomInt(2 ** 32)) + room.round);
+    room.random = random;
     room.phase = "playing";
     room.round += 1;
     room.shots = [];
@@ -780,7 +815,8 @@ class Rooms<Member> {
     room.field = createField(
       room.players.map((player) => player.id),
       random,
-      room.settings.maxWind
+      room.settings.maxWind,
+      room.settings.walls
     );
     for (const player of room.players) {
       this.sendOwnAim(room, player);

@@ -79,7 +79,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         },
         players: [],
         screen: true,
@@ -164,7 +166,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       joinRoom(screen, "Ann");
@@ -254,7 +258,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       joinRoom(screen, "Ann");
@@ -278,7 +284,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       expect(state(screen).phase).toBe("playing");
@@ -300,7 +308,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       expect(state(ann).settings).toEqual({
@@ -311,7 +321,9 @@ describe("Rooms", () => {
         cash: 0,
         interest: 5,
         armsLevel: 4,
-        traces: false
+        traces: false,
+        changingWind: false,
+        walls: "none"
       });
 
       rooms.handle(screen, {
@@ -324,7 +336,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       expect(errors(screen)).toEqual([{ type: "error", code: "not-allowed", re: "settings" }]);
@@ -336,7 +350,9 @@ describe("Rooms", () => {
         cash: 0,
         interest: 5,
         armsLevel: 4,
-        traces: false
+        traces: false,
+        changingWind: false,
+        walls: "none"
       });
     });
 
@@ -355,7 +371,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       expect(errors(screen)).toEqual([{ type: "error", code: "wrong-phase", re: "settings" }]);
@@ -390,7 +408,9 @@ describe("Rooms", () => {
             cash: 0,
             interest: 5,
             armsLevel: 4,
-            traces: false
+            traces: false,
+            changingWind: false,
+            walls: "none"
           }
         });
         expect(errors(who)).toEqual([
@@ -409,7 +429,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       expect(state(screen).players).toHaveLength(2);
@@ -612,7 +634,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       rooms.handle(screen, { type: "start" });
@@ -648,7 +672,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       joinRoom(screen, "Ann");
@@ -753,7 +779,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       rooms.handle(screen, { type: "start" });
@@ -761,10 +789,9 @@ describe("Rooms", () => {
     };
     const of = <Type extends ServerMessage["type"]>(member: Member, type: Type) =>
       member.messages.filter((message) => message.type === type) as Extract<ServerMessage, { type: Type }>[];
-    /** Aims steeply at low power, so that the shot lands beside the tank that fires it. */
+    /** Aims straight up at low power, so that the shot comes down on the tank that fires it and takes some of its energy. */
     const aimBeside = (who: Member) => {
-      const { angle } = last(who, "aim");
-      rooms.handle(who, { type: "aim", angle: angle < 90 ? 80 : 100, power: 100 });
+      rooms.handle(who, { type: "aim", angle: 90, power: 100 });
     };
 
     it("sends a projectile into the air, which the screen is told about until it is gone", () => {
@@ -916,6 +943,48 @@ describe("Rooms", () => {
       expect(last(again, "weapons")).toMatchObject({ selected: "tracer", counts: { tracer: 19, missile: 5 } });
     });
 
+    it("changes the wind a little after every shot when the room is set to, and tells it to everyone", () => {
+      const screen = createRoom();
+      const ann = joinRoom(screen, "Ann");
+      joinRoom(screen, "Bob");
+      const settings = { ...state(screen).settings, turns: "live" as const, maxWind: 200 };
+      rooms.handle(screen, { type: "settings", settings: { ...settings, changingWind: true } });
+      rooms.handle(screen, { type: "start" });
+
+      const winds = [state(ann).wind];
+      for (let shot = 0; shot < 12; shot++) {
+        // Tracers, which harm nobody
+        rooms.handle(ann, { type: "weapon", weapon: "tracer" });
+        rooms.handle(ann, { type: "aim", angle: 90, power: 200 });
+        rooms.handle(ann, { type: "fire" });
+        vi.advanceTimersByTime(8000);
+        winds.push(state(ann).wind);
+      }
+      const changes = winds.slice(1).map((wind, index) => wind - winds[index]);
+      expect(changes.some((change) => change !== 0)).toBe(true);
+      for (const change of changes) expect(Math.abs(change)).toBeLessThanOrEqual(5);
+      for (const wind of winds) expect(Math.abs(wind)).toBeLessThanOrEqual(200);
+    });
+
+    it("keeps the wind of a round as it is unless the room is set to change it", () => {
+      const { screen, ann } = startGame();
+      rooms.handle(screen, { type: "lobby" });
+      const before = state(ann).wind;
+      rooms.handle(ann, { type: "weapon", weapon: "tracer" });
+      rooms.handle(ann, { type: "fire" });
+      vi.advanceTimersByTime(8000);
+      expect(state(ann).wind).toBe(before);
+    });
+
+    it("gives the field the walls the room is set to", () => {
+      const screen = createRoom();
+      joinRoom(screen, "Ann");
+      joinRoom(screen, "Bob");
+      rooms.handle(screen, { type: "settings", settings: { ...state(screen).settings, walls: "rubber" } });
+      rooms.handle(screen, { type: "start" });
+      expect(last(screen, "field").field.walls).toBe("rubber");
+    });
+
     it("draws a wind for each round, within what the room allows, and tells it to everyone", () => {
       const screen = createRoom();
       const ann = joinRoom(screen, "Ann");
@@ -931,7 +1000,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       rooms.handle(screen, { type: "start" });
@@ -955,7 +1026,16 @@ describe("Rooms", () => {
       expect(room.state.settings.maxWind).toBe(200);
       other.handle("screen", {
         type: "settings",
-        settings: { ...room.state.settings, maxWind: 501, cash: 0, interest: 5, armsLevel: 4, traces: false }
+        settings: {
+          ...room.state.settings,
+          maxWind: 501,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false,
+          changingWind: false,
+          walls: "none"
+        }
       } as never);
     });
 
@@ -1044,7 +1124,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       rooms.handle(screen, { type: "start" });
@@ -1052,15 +1134,15 @@ describe("Rooms", () => {
     };
     const of = <Type extends ServerMessage["type"]>(member: Member, type: Type) =>
       member.messages.filter((message) => message.type === type) as Extract<ServerMessage, { type: Type }>[];
-    /** Ann fires steeply at low power, so that the shot lands beside her own tank and takes some of its energy. */
+    /** Ann fires a Baby Missile straight up at low power: it comes down on her own tank and takes some of its energy. */
     const hitSelf = (ann: Member) => {
-      const { angle } = last(ann, "aim");
-      rooms.handle(ann, { type: "aim", angle: angle < 90 ? 80 : 100, power: 100 });
+      rooms.handle(ann, { type: "aim", angle: 90, power: 100 });
       rooms.handle(ann, { type: "fire" });
       vi.advanceTimersByTime(3100);
     };
-    /** Ann fires straight up at low power, so that the shot comes down on her own tank and destroys it. */
+    /** Ann fires a Baby Nuke straight up at low power, so that it comes down on her own tank and destroys it. */
     const destroySelf = (ann: Member) => {
+      rooms.handle(ann, { type: "weapon", weapon: "baby-nuke" });
       rooms.handle(ann, { type: "aim", angle: 90, power: 100 });
       rooms.handle(ann, { type: "fire" });
       vi.advanceTimersByTime(2000);
@@ -1150,7 +1232,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       const ann = joinRoom(screen, "Ann");
@@ -1280,6 +1364,7 @@ describe("Rooms", () => {
       const { screen, byId } = startClassic();
       const first = whose(screen)!;
       // The first one destroys itself: a shot straight up comes down on the tank
+      rooms.handle(byId(first), { type: "weapon", weapon: "baby-nuke" });
       rooms.handle(byId(first), { type: "aim", angle: 90, power: 100 });
       rooms.handle(byId(first), { type: "fire" });
       vi.advanceTimersByTime(3000);
@@ -1310,6 +1395,7 @@ describe("Rooms", () => {
       const players = [joinRoom(screen, "Ann"), joinRoom(screen, "Bob")];
       rooms.handle(screen, { type: "start" });
       const first = whose(screen)!;
+      rooms.handle(players[first], { type: "weapon", weapon: "baby-nuke" });
       rooms.handle(players[first], { type: "aim", angle: 90, power: 100 });
       rooms.handle(players[first], { type: "fire" });
       vi.advanceTimersByTime(3000);
@@ -1345,7 +1431,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       rooms.handle(screen, { type: "start" });
@@ -1371,7 +1459,9 @@ describe("Rooms", () => {
           cash: 0,
           interest: 5,
           armsLevel: 4,
-          traces: false
+          traces: false,
+          changingWind: false,
+          walls: "none"
         }
       });
       rooms.handle(screen, { type: "start" });
@@ -1444,17 +1534,21 @@ describe("Rooms", () => {
           interest: 5,
           armsLevel: 4,
           traces: false,
+          changingWind: false,
+          walls: "none",
           ...more
         }
       });
       rooms.handle(screen, { type: "start" });
       return { screen, players };
     };
-    /** A player fires straight up at low power, so that the shot comes down on its own tank and destroys it. */
+    /** A player fires Baby Missiles straight up at low power until they have come down on its own tank often enough to destroy it. */
     const destroySelf = (who: Member) => {
-      rooms.handle(who, { type: "aim", angle: 90, power: 100 });
-      rooms.handle(who, { type: "fire" });
-      vi.advanceTimersByTime(2000);
+      for (let shot = 0; shot < 20 && last(who, "energy").energy > 0; shot++) {
+        rooms.handle(who, { type: "aim", angle: 90, power: 100 });
+        rooms.handle(who, { type: "fire" });
+        vi.advanceTimersByTime(3100);
+      }
     };
 
     it("starts the first round at once when nobody has money, with only the Baby Missile", () => {
@@ -1486,6 +1580,53 @@ describe("Rooms", () => {
       rooms.handle(ann, { type: "buy", weapon: "missile" });
       expect(last(ann, "weapons").counts).toEqual({ missile: 10 });
       expect(money(ann, 0)).toBe(6250);
+    });
+
+    it("buys an item back for less than it costs, a bundle at a time", () => {
+      const { screen, players } = startGame(10000);
+      const [ann] = players;
+      rooms.handle(ann, { type: "buy", weapon: "missile" });
+      rooms.handle(ann, { type: "buy", weapon: "missile" });
+      expect(money(screen, 0)).toBe(6250);
+      // Five Missiles cost 1,875 and sell for four fifths of it
+      rooms.handle(ann, { type: "sell", weapon: "missile" });
+      expect(last(ann, "weapons").counts).toEqual({ missile: 5 });
+      expect(money(screen, 0)).toBe(7750);
+      rooms.handle(ann, { type: "sell", weapon: "missile" });
+      expect(last(ann, "weapons").counts).toEqual({});
+      expect(money(screen, 0)).toBe(9250);
+
+      rooms.handle(ann, { type: "sell", weapon: "missile" });
+      rooms.handle(ann, { type: "sell", weapon: "baby-missile" });
+      rooms.handle(screen, { type: "sell", weapon: "missile" });
+      expect(errors(ann)).toEqual([
+        { type: "error", code: "no-weapon", re: "sell" },
+        { type: "error", code: "no-weapon", re: "sell" }
+      ]);
+      expect(errors(screen)).toEqual([{ type: "error", code: "not-allowed", re: "sell" }]);
+      expect(money(screen, 0)).toBe(9250);
+    });
+
+    it("sells what is left of a bundle, and only in the shop", () => {
+      const { screen, players } = startGame(10000);
+      const [ann, bob, cid] = players;
+      rooms.handle(ann, { type: "buy", weapon: "tracer" });
+      for (const player of players) rooms.handle(player, { type: "ready" });
+      rooms.handle(ann, { type: "weapon", weapon: "tracer" });
+      rooms.handle(ann, { type: "fire" });
+      rooms.handle(ann, { type: "sell", weapon: "tracer" });
+      expect(errors(ann)).toEqual([{ type: "error", code: "wrong-phase", re: "sell" }]);
+
+      // The round ends, and the 19 tracers that are left are sold: the one that was chosen is not any more
+      vi.advanceTimersByTime(3000);
+      destroySelf(bob);
+      destroySelf(cid);
+      vi.advanceTimersByTime(8000);
+      expect(state(screen).phase).toBe("shop");
+      const before = money(screen, 0);
+      rooms.handle(ann, { type: "sell", weapon: "tracer" });
+      expect(last(ann, "weapons")).toEqual({ type: "weapons", selected: "baby-missile", counts: {} });
+      expect(money(screen, 0)).toBe(before + 7);
     });
 
     it("refuses what cannot be bought", () => {
@@ -1574,7 +1715,7 @@ describe("Rooms", () => {
     });
 
     it("sells only the weapons of the arms level of the room", () => {
-      const { screen, players } = startGame(50000, { armsLevel: 0, traces: false });
+      const { screen, players } = startGame(50000, { armsLevel: 0, traces: false, changingWind: false, walls: "none" });
       const [ann] = players;
       rooms.handle(ann, { type: "buy", weapon: "nuke" });
       rooms.handle(ann, { type: "buy", weapon: "mirv" });

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { addTank, createField, drawWind, FIELD_HEIGHT, FIELD_WIDTH, removeTank, TANK_WIDTH } from "./field";
+import { addTank, changeWind, createField, drawWind, FIELD_HEIGHT, FIELD_WIDTH, removeTank, TANK_WIDTH } from "./field";
 import { createRandom, randomInteger } from "./random";
 import { flatten, generateTerrain, groundAt } from "./terrain";
 
@@ -151,5 +151,21 @@ describe("the wind of a round", () => {
 
   it("is none when no wind is allowed", () => {
     expect(drawWind(0, createRandom(1))).toBe(0);
+  });
+
+  it("changes by at most five at a time, any change as often, and stays within what is allowed", () => {
+    const random = createRandom(3);
+    const changes = Array.from({ length: 2200 }, () => changeWind(40, 200, random) - 40);
+    expect(Math.min(...changes)).toBe(-5);
+    expect(Math.max(...changes)).toBe(5);
+    for (let change = -5; change <= 5; change++) {
+      const count = changes.filter((candidate) => candidate === change).length;
+      expect(count).toBeGreaterThan(140);
+      expect(count).toBeLessThan(260);
+    }
+    for (let draw = 0; draw < 200; draw++) {
+      expect(changeWind(199, 200, random)).toBeLessThanOrEqual(200);
+      expect(changeWind(-199, 200, random)).toBeGreaterThanOrEqual(-200);
+    }
   });
 });

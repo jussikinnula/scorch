@@ -1,6 +1,6 @@
 import React from "react";
 
-import { isForSale } from "../../shared/economy";
+import { isForSale, sellCount, sellPrice } from "../../shared/economy";
 import { MAX_ITEMS, WEAPONS } from "../../shared/weapons";
 import { formatMoney } from "../money";
 
@@ -15,11 +15,12 @@ interface Props {
   /** The arms level of the room: the weapons of a higher level are not sold. */
   armsLevel: number;
   onBuy: (weapon: string) => void;
+  onSell: (weapon: string) => void;
   onReady: () => void;
 }
 
 /** The shop between two rounds, on the phone: what there is to buy, and a button for being done. */
-export default function Shop({ money, counts, ready, time, armsLevel, onBuy, onReady }: Props) {
+export default function Shop({ money, counts, ready, time, armsLevel, onBuy, onSell, onReady }: Props) {
   return (
     <div className="shop">
       <p className="shop__money" aria-label="Money">
@@ -27,7 +28,7 @@ export default function Shop({ money, counts, ready, time, armsLevel, onBuy, onR
         {time !== null && time > 0 && <span aria-label="Time left">{time}</span>}
       </p>
       <ul className="shop__items">
-        {WEAPONS.filter((weapon) => isForSale(weapon, armsLevel)).map((weapon) => {
+        {WEAPONS.filter((weapon) => isForSale(weapon, armsLevel) || (counts[weapon.id] ?? 0) > 0).map((weapon) => {
           const owned = counts[weapon.id] ?? 0;
           const full = owned + weapon.bundle > MAX_ITEMS;
           return (
@@ -40,9 +41,22 @@ export default function Shop({ money, counts, ready, time, armsLevel, onBuy, onR
               </span>
               <button
                 className="button button--small"
+                aria-label={`Sell ${weapon.name}`}
+                title={
+                  owned > 0
+                    ? `${sellCount(weapon, owned)} for ${formatMoney(sellPrice(weapon, sellCount(weapon, owned)))}`
+                    : undefined
+                }
+                onClick={() => onSell(weapon.id)}
+                disabled={ready || owned <= 0}
+              >
+                Sell
+              </button>
+              <button
+                className="button button--small"
                 aria-label={`Buy ${weapon.name}`}
                 onClick={() => onBuy(weapon.id)}
-                disabled={ready || full || money < weapon.price}
+                disabled={ready || full || money < weapon.price || !isForSale(weapon, armsLevel)}
               >
                 Buy
               </button>

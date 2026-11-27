@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { damageReward, isForSale, withInterest } from "./economy";
+import { damageReward, isForSale, sellCount, sellPrice, withInterest } from "./economy";
+import { findWeapon } from "./weapons";
 import { WEAPONS } from "./weapons";
 
 describe("the economy", () => {
@@ -29,5 +30,14 @@ describe("the economy", () => {
     expect(basic).toContain("missile");
     expect(basic).not.toContain("nuke");
     expect(basic).not.toContain("mirv");
+  });
+
+  it("buys items back at four fifths of their price, a bundle or the rest of one at a time", () => {
+    const missile = findWeapon("missile")!;
+    expect(sellCount(missile, 12)).toBe(5);
+    expect(sellCount(missile, 3)).toBe(3);
+    expect(sellPrice(missile, 5)).toBe(1500);
+    expect(sellPrice(missile, 3)).toBe(900);
+    expect(sellPrice(findWeapon("tracer")!, 19)).toBe(7);
   });
 });
