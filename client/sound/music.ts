@@ -2,7 +2,9 @@ import { RoomPhase } from "../../shared/protocol";
 
 /**
  * The music of the game: one piece at a time. When the piece changes, the one that plays fades out
- * to silence and only then the new one fades in: they are never heard on top of each other.
+ * to silence and only then the new one fades in: they are never heard on top of each other. A piece
+ * also fades out towards its own end and starts again, or the next one starts, with a fade in: the
+ * music never stops or starts with a cut.
  */
 
 /** What can be asked to play: the pieces by what they are for. "game" is several pieces, played one after another. */
@@ -20,7 +22,9 @@ const ONCE: Track[] = ["victory", "defeat"];
 /** The part of an audio element that the music needs: also what a test gives in its place. */
 export interface Player {
   volume: number;
-  loop: boolean;
+  /** How far the piece has played and how long it is, in seconds. The length is not known before the file has started to load. */
+  currentTime: number;
+  duration: number;
   play(): Promise<void> | void;
   pause(): void;
   addEventListener(type: "ended", listener: () => void): void;
@@ -58,6 +62,8 @@ export class Music {
   private enabled = false;
   private playing: { track: Track; piece: number; player: Player } | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** A piece that is played only once has been played to its end: it is not started again until something else has been asked for. */
+  private finished: Track | null = null;
   /** The browser did not let the music start: it does only after the user has touched the page. */
   private blocked = false;
 
@@ -69,6 +75,7 @@ export class Music {
 
   /** Asks for a track to be played from now on, or for silence. Asking for what already plays changes nothing. */
   want(track: Track | null) {
+    if (track !== this.wanted) this.finished = null;
     this.wanted = track;
     this.run();
   }
@@ -101,7 +108,10 @@ export class Music {
     this.step();
   }
 
-  /** One step of a fade: down while something else is wanted than what plays, then up with what is wanted. */
+  /**
+   * One step of a fade: down while something else is wanted than what plays, then up with what is
+   * wanted, and down again when the piece is about to end.
+   */
   private step() {
     const change = (MUSIC_VOLUME * FADE_STEP) / FADE_TIME;
     const { playing, target } = this;
@@ -111,11 +121,14 @@ export class Music {
         playing.player.pause();
         this.playing = null;
       }
-    } else if (!playing && target) {
+    } else if (!playing && target && target !== this.finished) {
       // The pieces of a track with several are played one after another, from any of them
       this.begin(target, Math.floor(this.random() * this.tracks[target].length));
-    } else if (playing && playing.player.volume < MUSIC_VOLUME) {
-      playing.player.volume = Math.min(MUSIC_VOLUME, playing.player.volume + change);
+    } else if (playing) {
+      // As loud as the fade in has got to, and no louder than the end of the piece lets it be
+      const left = (playing.player.duration - playing.player.currentTime) * 1000;
+      const ending = Number.isFinite(left) ? Math.max(0, Math.min(1, left / FADE_TIME)) * MUSIC_VOLUME : MUSIC_VOLUME;
+      playing.player.volume = Math.min(ending, MUSIC_VOLUME, playing.player.volume + change);
     } else if (this.timer !== null) {
       clearInterval(this.timer);
       this.timer = null;
@@ -126,11 +139,12 @@ export class Music {
     const pieces = this.tracks[track];
     const player = this.create(pieces[piece]);
     player.volume = 0;
-    player.loop = pieces.length === 1 && !ONCE.includes(track);
     player.addEventListener("ended", () => {
-      // The next piece of the track, if this is still what plays and there is another
-      if (this.playing?.player !== player || pieces.length === 1) return;
-      this.begin(track, (piece + 1) % pieces.length);
+      if (this.playing?.player !== player) return;
+      this.playing = null;
+      // What is played once is over. The rest go on: the next piece of the track, or the same one again
+      if (ONCE.includes(track)) this.finished = track;
+      else if (this.target === track) this.begin(track, (piece + 1) % pieces.length);
       this.run();
     });
     this.playing = { track, piece, player };

@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { PublicRoom, TurnMode } from "../../shared/protocol";
 import { describeSettings } from "../components/SettingsSummary";
 import { Api, useApiMessages } from "../hooks/useApiConnection";
+import { takeNotice } from "../notice";
 import { toHash } from "../routes";
 
 interface Props {
@@ -15,6 +16,8 @@ const LIST_INTERVAL = 5000;
 /** The lobby of the online games: the public games that wait for players, and the way to a new game. */
 export default function Online({ api }: Props) {
   const [games, setGames] = useState<PublicRoom[]>([]);
+  // What the page that sent the user here had to tell, e.g. that the game it showed has ended
+  const [notice] = useState(takeNotice);
   /** Which of the public games are shown: those of one way of taking turns, or all. */
   const [turns, setTurns] = useState<TurnMode | null>(null);
   const shown = games.filter((game) => turns === null || game.settings.turns === turns);
@@ -39,6 +42,11 @@ export default function Online({ api }: Props) {
           Create a game
         </a>
       </div>
+      {notice && (
+        <p className="lobby__notice" role="status">
+          {notice}
+        </p>
+      )}
       <div className="stepper" role="group" aria-label="Show games">
         <span>Show</span>
         {([null, "classic", "live"] as const).map((choice) => (

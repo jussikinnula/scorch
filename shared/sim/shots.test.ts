@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
+import { DEFLECT_COST } from "../accessories";
 import { FieldState, TankState } from "../protocol";
 import { FIELD_HEIGHT, FIELD_WIDTH, TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "./field";
 import {
@@ -16,7 +17,7 @@ import {
   STEPS_PER_SECOND,
   WIND_PER_UNIT
 } from "./shots";
-import { findWeapon, FUNKY_BOMBS, FUNKY_REACH, LEAP_FROG_RADII, MIRV_WARHEADS } from "../weapons";
+import { batteriesFor, findWeapon, FUNKY_BOMBS, FUNKY_REACH, LEAP_FROG_RADII, MIRV_WARHEADS } from "../weapons";
 import { applyTerrainOp, carve, fill, flow, isDirt, settle, Terrain } from "./terrain";
 
 /** A field of level ground at the given y, with the given tanks on it. */
@@ -977,6 +978,13 @@ describe("the weapons of the fourth phase", () => {
         .map((blast) => blast.part)
         .sort()
     ).toEqual([0, 1, 2, 3, 4, 5]);
+    // The bombs are of different sizes, around that of the first explosion
+    const sizes = blasts.slice(1).map((blast) => blast.radius);
+    expect(new Set(sizes).size).toBeGreaterThan(2);
+    for (const size of sizes) {
+      expect(size).toBeGreaterThanOrEqual(28);
+      expect(size).toBeLessThanOrEqual(56);
+    }
   });
 
   it("let the ground down above the tunnels of a digger, and harm nobody", () => {
@@ -1265,6 +1273,149 @@ describe("the weapons of the fourth phase", () => {
       };
       expect(hollow(0).energy).toBe(40);
       expect(hollow(100)).toMatchObject({ energy: 100, shield: 40 });
+    });
+  });
+
+  describe("that use batteries", () => {
+    const fired = (weapon: string, batteries: number, tanks: Partial<TankState>[]) => {
+      const field = flatField(400, tanks);
+      const shot = launch(field.tanks[0], 1, weapon, batteries);
+      const { shots, events } = stepShots(field, [shot]);
+      return { field, shot, shots, events };
+    };
+
+    it("use as many batteries as the power of the shot asks for, of those there are", () => {
+      expect(batteriesFor(0, 10)).toBe(0);
+      expect(batteriesFor(200, 10)).toBe(1);
+      expect(batteriesFor(590, 10)).toBe(3);
+      expect(batteriesFor(1000, 10)).toBe(5);
+      expect(batteriesFor(1000, 2)).toBe(2);
+      expect(batteriesFor(1000, 0)).toBe(0);
+    });
+
+    it("burst around the tank with a plasma blast: larger and stronger with more batteries, and through the dirt", () => {
+      const tanks = [{ x: 600, angle: 90 }, { x: 700 }, { x: 900 }];
+      const none = fired("plasma-blast", 0, tanks);
+      expect(none.shots).toEqual([]);
+      expect(none.events[0]).toMatchObject({ event: "explode", x: 600, radius: 20, weapon: "plasma-blast" });
+      expect(none.field.tanks.map((tank) => tank.energy)).toEqual([100, 100, 100]);
+
+      const full = fired("plasma-blast", 5, tanks);
+      expect(full.events[0]).toMatchObject({ event: "explode", x: 600, radius: 150 });
+      // The one that fired is not hurt, the near one is, and the far one is out of reach
+      expect(full.field.tanks[0].energy).toBe(100);
+      expect(full.field.tanks[1].energy).toBeLessThan(70);
+      expect(full.field.tanks[1].energy).toBeGreaterThan(0);
+      expect(full.field.tanks[2].energy).toBe(100);
+      // The dirt is as it was
+      expect(full.field.terrain.every((column) => column[0] === 400)).toBe(true);
+      const some = fired("plasma-blast", 3, tanks);
+      expect(some.field.tanks[1].energy).toBeGreaterThan(full.field.tanks[1].energy);
+
+      // A wall between them does not stop it, a shield does
+      const walled = flatField(400, [{ x: 600 }, { x: 700, shield: 100, shieldMax: 100 }]);
+      for (let x = 640; x < 660; x++) walled.terrain[x] = [200, FIELD_HEIGHT];
+      stepShots(walled, [launch(walled.tanks[0], 1, "plasma-blast", 5)]);
+      expect(walled.tanks[1].energy).toBe(100);
+      expect(walled.tanks[1].shield).toBeLessThan(100);
+    });
+
+    it("cut a straight beam with a laser: through the dirt and a shield, into every tank on its way", () => {
+      const tanks = [{ x: 200, angle: 0 }, { x: 600, shield: 100, shieldMax: 100 }, { x: 900 }, { x: 1000, y: 200 }];
+      const field = flatField(400, tanks);
+      // A wall between them, and the last one on a pillar above the line of the beam
+      for (let x = 300; x < 340; x++) field.terrain[x] = [100, FIELD_HEIGHT];
+      for (let x = 980; x < 1020; x++) field.terrain[x] = [200, FIELD_HEIGHT];
+      const shot = launch(field.tanks[0], 1, "laser", 5);
+      const { shots, events } = stepShots(field, [shot]);
+      expect(shots).toEqual([]);
+      const beam = events[0];
+      if (beam.event !== "beam") throw new Error("no beam");
+      expect(beam).toMatchObject({ x1: Math.round(shot.x), y1: Math.round(shot.y), weapon: "laser" });
+      expect(beam.y2).toBe(beam.y1);
+      expect(beam.x2).toBeGreaterThan(FIELD_WIDTH);
+      // Both on the line are destroyed, the shield of the first untouched; the one above the line is not hit
+      expect(field.tanks.map((tank) => tank.energy)).toEqual([100, 0, 0, 100]);
+      expect(field.tanks[1].shield).toBe(100);
+      expect(events.some((event) => event.event === "shield")).toBe(false);
+      expect(field.terrain[320][0]).toBe(100);
+    });
+
+    it("do less with a laser that has no batteries, and aim it by the turret", () => {
+      const weak = fired("laser", 0, [{ x: 200, angle: 0 }, { x: 600 }]);
+      expect(weak.field.tanks[1].energy).toBe(60);
+      const up = fired("laser", 5, [{ x: 200, angle: 90 }, { x: 600 }]);
+      expect(up.field.tanks[1].energy).toBe(100);
+      const beam = up.events[0];
+      if (beam.event !== "beam") throw new Error("no beam");
+      expect(beam.x2).toBe(beam.x1);
+      expect(beam.y2).toBeLessThan(0);
+    });
+  });
+
+  describe("against a shield that deflects", () => {
+    const shielded = (shield = 150): FieldState =>
+      flatField(400, [{ x: 100 }, { x: 700, shield, shieldMax: shield, deflects: shield > 0 || undefined }]);
+    const all = (field: FieldState, first: Shot) => {
+      let shots = [first];
+      const events = [];
+      const path: Shot[] = [];
+      for (let step = 0; shots.length > 0 && step < 100000; step++) {
+        const result = stepShots(field, shots);
+        events.push(...result.events);
+        shots = result.shots;
+        if (shots[0]) path.push(shots[0]);
+      }
+      return { events, path };
+    };
+
+    it("bounce off it: the projectile is thrown back and lands elsewhere, and the shield loses a part of itself", () => {
+      const field = shielded();
+      const { events, path } = all(field, { id: 1, owner: 0, weapon: "missile", x: 692, y: 100, vx: 0, vy: 0 });
+      expect(events[0]).toMatchObject({ event: "deflect", id: 1 });
+      expect(field.tanks[1].shield).toBe(150 - DEFLECT_COST);
+      expect(field.tanks[1].deflects).toBe(true);
+      // It went up again from the shield, and never got inside it
+      expect(path.some((shot) => shot.vy < -50)).toBe(true);
+      for (const shot of path) expect(Math.hypot(shot.x - 700, shot.y - (400 - TANK_HEIGHT / 2))).toBeGreaterThan(24);
+      // It came down somewhere beside the tank, where its explosion is taken by the shield or reaches nothing
+      const blast = events.find((event) => event.event === "explode");
+      expect(blast).toBeDefined();
+      expect(field.tanks[1].energy).toBe(100);
+    });
+
+    it("let the shots of the tank itself out through it, and stop nothing once it is used up", () => {
+      const field = shielded();
+      field.tanks[1].angle = 90;
+      field.tanks[1].power = 300;
+      const own = all(field, launch(field.tanks[1], 1, "tracer"));
+      expect(own.events.some((event) => event.event === "deflect")).toBe(false);
+      expect(field.tanks[1].shield).toBe(150);
+
+      // Five projectiles bounce, each once and away to a side, and the shield is gone with the fifth; the sixth
+      // comes down on the tank
+      for (let shot = 0; shot < 5; shot++) {
+        expect(field.tanks[1].deflects).toBe(true);
+        expect(field.tanks[1].shield).toBe(150 - shot * DEFLECT_COST);
+        all(field, { id: 10 + shot, owner: 0, weapon: "tracer", x: 700, y: 100, vx: 0, vy: 0 });
+      }
+      expect(field.tanks[1]).toMatchObject({ shield: 0, shieldMax: 0 });
+      expect(field.tanks[1].deflects).toBeUndefined();
+      const last = all(field, { id: 20, owner: 0, weapon: "missile", x: 700, y: 100, vx: 0, vy: 0 });
+      expect(last.events.some((event) => event.event === "deflect")).toBe(false);
+      expect(field.tanks[1].energy).toBeLessThan(100);
+    });
+
+    it("take the damage of an explosion beside it as any shield does, and deflect nothing of an ordinary shield", () => {
+      const field = shielded();
+      const beside = all(field, { id: 1, owner: 0, weapon: "baby-nuke", x: 760, y: 100, vx: 0, vy: 0 });
+      expect(beside.events.some((event) => event.event === "deflect")).toBe(false);
+      expect(beside.events.some((event) => event.event === "shield")).toBe(true);
+      expect(field.tanks[1].shield).toBeLessThan(150);
+
+      const plain = flatField(400, [{ x: 100 }, { x: 700, shield: 100, shieldMax: 100 }]);
+      const { events } = all(plain, { id: 1, owner: 0, weapon: "tracer", x: 700, y: 100, vx: 0, vy: 0 });
+      expect(events.some((event) => event.event === "deflect")).toBe(false);
     });
   });
 });

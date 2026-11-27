@@ -38,8 +38,13 @@ export function landed(before: ShotState[], now: ShotState[], field: { width: nu
   ).length;
 }
 
-/** The sound of something that went off: the rumble of an explosion, or the click of what does not explode. */
-export function explosionSound(weapon: string, radius: number): "explosion" | "click" {
+/**
+ * The sound of something that went off: the roar of a nuclear weapon, the crackle of a Plasma Blast,
+ * the rumble of an explosion, or the click of what does not explode.
+ */
+export function explosionSound(weapon: string, radius: number): "nuke" | "plasma" | "explosion" | "click" {
   const kind = findWeapon(weapon)?.kind;
+  if (weapon === "baby-nuke" || weapon === "nuke") return "nuke";
+  if (kind === "plasma") return "plasma";
   return kind && EXPLOSIVE.includes(kind) && radius >= LEAST_EXPLOSION ? "explosion" : "click";
 }

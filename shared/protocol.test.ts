@@ -408,7 +408,8 @@ describe("the version of the protocol", () => {
     11: "81d59318b615d6a9",
     12: "99583e162f352c17",
     13: "5a17c35ab40f7cce",
-    14: "09e7913f671b6cd6"
+    14: "09e7913f671b6cd6",
+    15: "67d3a431a0c1cceb"
   };
 
   it("is raised when the protocol changes", () => {

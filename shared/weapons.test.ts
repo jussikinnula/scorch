@@ -32,7 +32,7 @@ describe("the weapons", () => {
         expect(weapon.warheads).toBeGreaterThan(0);
       }
       // What does not explode has no radius, and the other way round
-      expect(weapon.radius > 0).toBe(!["tracer", "disrupter", "liquid", "napalm"].includes(weapon.kind));
+      expect(weapon.radius > 0).toBe(!["tracer", "disrupter", "liquid", "napalm", "laser"].includes(weapon.kind));
       if (weapon.kind === "liquid" || weapon.kind === "napalm") expect(weapon.amount).toBeGreaterThan(0);
     }
     expect(findWeapon("deaths-head")).toMatchObject({ warheads: 9, radius: 35, price: 20000, bundle: 1, armsLevel: 4 });

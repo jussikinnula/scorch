@@ -10,6 +10,7 @@
  * - parachute: opens by itself when the tank falls far enough to be hurt, and takes the damage of the fall. One for a fall.
  * - battery: gives the tank ten of its energy back, when the player uses one.
  * - shield: when the player puts one up, it takes the damage of the explosions of others until it is used up.
+ *   One that deflects also throws back the projectiles of others that fly into it, at a cost to itself.
  */
 export type AccessoryKind = "parachute" | "battery" | "shield";
 
@@ -25,12 +26,24 @@ export interface Accessory {
   armsLevel: number;
   /** For a shield: how much damage it takes before it is gone. For a battery: how much energy it gives. */
   strength: number;
+  /** For a shield: whether the projectiles of others bounce off it (the Force Shield). */
+  deflects?: boolean;
 }
 
 export const ACCESSORIES: readonly Accessory[] = [
   { id: "parachute", name: "Parachute", kind: "parachute", price: 10000, bundle: 8, armsLevel: 2, strength: 0 },
   { id: "battery", name: "Battery", kind: "battery", price: 5000, bundle: 10, armsLevel: 2, strength: 10 },
   { id: "shield", name: "Shield", kind: "shield", price: 20000, bundle: 3, armsLevel: 3, strength: 100 },
+  {
+    id: "force-shield",
+    name: "Force Shield",
+    kind: "shield",
+    price: 25000,
+    bundle: 3,
+    armsLevel: 3,
+    strength: 150,
+    deflects: true
+  },
   { id: "heavy-shield", name: "Heavy Shield", kind: "shield", price: 30000, bundle: 2, armsLevel: 4, strength: 200 }
 ];
 
@@ -41,3 +54,6 @@ export const findAccessory = (id: string) => ACCESSORIES.find((accessory) => acc
  * original, where it is the default of a setting of the player: a small fall is not worth a parachute.
  */
 export const PARACHUTE_THRESHOLD = 5;
+
+/** How much of itself a shield that deflects loses each time a projectile bounces off it. Our own value. */
+export const DEFLECT_COST = 30;

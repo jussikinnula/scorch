@@ -1869,6 +1869,50 @@ describe("Rooms", () => {
       expect(errors(screen)).toEqual([{ type: "error", code: "wrong-phase", re: "settings" }]);
     });
 
+    it("uses batteries for an energy weapon, as many as the power of the shot asks for, and shows the beam of a laser", () => {
+      const { screen, players } = startGame(100000);
+      const [ann] = players;
+      for (const weapon of ["battery", "laser", "plasma-blast"]) rooms.handle(ann, { type: "buy", weapon });
+      expect(last(ann, "weapons").counts).toEqual({ battery: 10, laser: 5, "plasma-blast": 5 });
+      for (const player of players) rooms.handle(player, { type: "ready" });
+      expect(state(screen).phase).toBe("playing");
+
+      rooms.handle(ann, { type: "weapon", weapon: "laser" });
+      rooms.handle(ann, { type: "aim", angle: 90, power: 600 });
+      rooms.handle(ann, { type: "fire" });
+      expect(last(ann, "weapons").counts).toEqual({ battery: 7, laser: 4, "plasma-blast": 5 });
+      vi.advanceTimersByTime(1000);
+      const beam = last(screen, "beam");
+      expect(beam.weapon).toBe("laser");
+      expect(beam.x2).toBe(beam.x1);
+      expect(last(screen, "shots").shots).toEqual([]);
+
+      // A Plasma Blast with all the power takes five, and the two that are left after it are all the next one gets
+      vi.advanceTimersByTime(20000);
+      rooms.handle(ann, { type: "weapon", weapon: "plasma-blast" });
+      rooms.handle(ann, { type: "aim", angle: 90, power: 1000 });
+      rooms.handle(ann, { type: "fire" });
+      expect(last(ann, "weapons").counts).toEqual({ battery: 2, laser: 4, "plasma-blast": 4 });
+      vi.advanceTimersByTime(20000);
+      expect(last(screen, "explode")).toMatchObject({ weapon: "plasma-blast", radius: 150 });
+      rooms.handle(ann, { type: "fire" });
+      expect(last(ann, "weapons").counts).toEqual({ laser: 4, "plasma-blast": 3 });
+      vi.advanceTimersByTime(1000);
+      expect(last(screen, "explode").radius).toBeLessThan(150);
+    });
+
+    it("puts up a force shield, which those who show the field see as one that deflects", () => {
+      const { screen, players } = startGame(100000);
+      const [ann] = players;
+      rooms.handle(ann, { type: "buy", weapon: "force-shield" });
+      expect(last(ann, "weapons").counts).toEqual({ "force-shield": 3 });
+      for (const player of players) rooms.handle(player, { type: "ready" });
+      rooms.handle(ann, { type: "use", item: "force-shield" });
+      expect(last(ann, "energy")).toEqual({ type: "energy", energy: 100, shield: 150 });
+      expect(last(screen, "terrain").tanks[0]).toMatchObject({ shield: 150, shieldMax: 150, deflects: true });
+      expect(last(screen, "terrain").tanks[1].deflects).toBeUndefined();
+    });
+
     it("sells accessories beside the weapons, and buys them back", () => {
       const { screen, players } = startGame(100000);
       const [ann] = players;

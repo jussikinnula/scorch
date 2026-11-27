@@ -21,6 +21,7 @@ import {
   RoomState,
   ServerMessage,
   SHOTS_INTERVAL,
+  TankState,
   TerrainChange,
   TURN_TIME
 } from "../shared/protocol";
@@ -39,7 +40,7 @@ import {
   SHOP_TIME,
   withInterest
 } from "../shared/economy";
-import { DEFAULT_WEAPON, findWeapon, MAX_ITEMS, starterKit } from "../shared/weapons";
+import { batteriesFor, DEFAULT_WEAPON, findWeapon, MAX_ITEMS, starterKit } from "../shared/weapons";
 
 /** How long a room is kept when its screen is away, in milliseconds. */
 export const ROOM_TIMEOUT = 5 * 60 * 1000;
@@ -725,6 +726,25 @@ class Rooms<Member> {
     return weapon;
   }
 
+  /**
+   * A tank fires the weapon its player has chosen: the weapon is used up, and so are the batteries
+   * that an energy weapon takes. The power of the shot chooses how many of them.
+   */
+  private launch(room: Room<Member>, player: Player<Member>, tank: TankState) {
+    const chosen = findWeapon(player.weapon);
+    let batteries = 0;
+    if (chosen?.kind === "plasma" || chosen?.kind === "laser") {
+      batteries = batteriesFor(tank.power, player.weapons.battery ?? 0);
+      if (batteries > 0) {
+        player.weapons.battery -= batteries;
+        if (player.weapons.battery <= 0) delete player.weapons.battery;
+      }
+    }
+    const weapon = this.useWeapon(player);
+    room.shots.push(launch(tank, room.nextShot++, weapon.id, batteries));
+    return weapon;
+  }
+
   private fire(member: Member) {
     const session = this.sessions.get(member);
     if (!session?.player) return this.refuse(member, "not-allowed", "fire");
@@ -741,14 +761,13 @@ class Rooms<Member> {
       room.turnEndsAt = Date.now();
       if (room.turnTimer) clearTimeout(room.turnTimer);
       room.turnTimer = null;
-      room.shots.push(launch(tank, room.nextShot++, this.useWeapon(player).id));
+      this.launch(room, player, tank);
       this.announce(room);
     } else {
       if (Date.now() < player.reloadedAt) return this.refuse(member, "reloading", "fire");
       // The bigger the weapon, the longer the tank reloads after it
-      const weapon = this.useWeapon(player);
+      const weapon = this.launch(room, player, tank);
       player.reloadedAt = Date.now() + weapon.reload * 1000;
-      room.shots.push(launch(tank, room.nextShot++, weapon.id));
       this.send(member, { type: "reload", time: weapon.reload * 1000 });
     }
     this.startTicker();
@@ -892,6 +911,8 @@ class Rooms<Member> {
     } else {
       tank.shield = accessory.strength;
       tank.shieldMax = accessory.strength;
+      if (accessory.deflects) tank.deflects = true;
+      else delete tank.deflects;
     }
     player.weapons[id] -= 1;
     if (player.weapons[id] <= 0) delete player.weapons[id];
@@ -982,6 +1003,14 @@ class Rooms<Member> {
             if (owner?.member && tank) {
               this.send(owner.member, { type: "energy", energy: tank.energy, shield: tank.shield });
             }
+          } else if (event.event === "deflect") {
+            // The shield lost some of itself: its owner is told, and so are those who show the field
+            const owner = room.players.find((player) => player.id === event.id);
+            const tank = room.field.tanks.find((candidate) => candidate.id === event.id);
+            if (owner?.member && tank) {
+              this.send(owner.member, { type: "energy", energy: tank.energy, shield: tank.shield });
+            }
+            told = true;
           } else if (event.event === "parachute") {
             const owner = room.players.find((player) => player.id === event.id);
             if (owner) {
@@ -989,6 +1018,9 @@ class Rooms<Member> {
               if (owner.weapons.parachute <= 0) delete owner.weapons.parachute;
               this.sendWeapons(owner);
             }
+          } else if (event.event === "beam") {
+            const { x1, y1, x2, y2, weapon } = event;
+            this.show(room, { type: "beam", x1, y1, x2, y2, weapon });
           } else if (event.event === "burn") {
             const { id, x, depths, weapon } = event;
             this.show(room, { type: "burn", id, x, depths, weapon });

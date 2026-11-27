@@ -22,7 +22,13 @@ describe("the accessories", () => {
     const sold = (armsLevel: number) => ACCESSORIES.filter((item) => isForSale(item, armsLevel)).map((item) => item.id);
     expect(sold(1)).toEqual([]);
     expect(sold(2)).toEqual(["parachute", "battery"]);
-    expect(sold(4)).toEqual(["parachute", "battery", "shield", "heavy-shield"]);
+    expect(sold(3)).toEqual(["parachute", "battery", "shield", "force-shield"]);
+    expect(sold(4)).toEqual(["parachute", "battery", "shield", "force-shield", "heavy-shield"]);
+  });
+
+  it("have one shield that deflects, which lasts longer than a plain one", () => {
+    expect(ACCESSORIES.filter((item) => item.deflects).map((item) => item.id)).toEqual(["force-shield"]);
+    expect(findAccessory("force-shield")!.strength).toBeGreaterThan(findAccessory("shield")!.strength);
   });
 
   it("have a heavy shield that takes more than a shield", () => {

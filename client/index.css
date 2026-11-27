@@ -1730,3 +1730,214 @@ input::placeholder {
   margin-left: auto;
   align-self: center;
 }
+
+/* What the lobby has to tell of the game the user came from: a lit window */
+.view .lobby__notice {
+  padding: 0.4rem 0.75rem;
+  border: 2px solid;
+  border-color: var(--metal-dark) var(--metal-light) var(--metal-light) var(--metal-dark);
+  background: #0b0c0f;
+  color: #ffd24a;
+}
+
+/* The pages of a game stay where they are: nothing grows under them and makes the window scroll */
+
+/* The standings at the end of an online round: a plate over the field, not a list under it */
+.online__field {
+  position: relative;
+}
+
+.online__result {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(32rem, 90%);
+  padding: 1rem 1.5rem;
+  --text: var(--ink);
+  --dim: var(--ink-dim);
+  border: 2px solid;
+  border-color: var(--metal-light) var(--metal-dark) var(--metal-dark) var(--metal-light);
+  background: var(--brushed);
+  box-shadow:
+    0 0 0 1px #0a0a0c,
+    0 6px 18px rgba(0, 0, 0, 0.55);
+  color: var(--ink);
+  animation: result-appears 0.4s ease-out 1.5s both;
+}
+
+.online__result .standings {
+  max-width: none;
+  margin: 0;
+}
+
+.online .field--boxed {
+  max-height: calc(100dvh - 10rem);
+}
+
+/* The shop fills the window and no more: its list of items scrolls inside it, between the money
+   above and the Ready button below, which stay where they are */
+.app:has(.shop) {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app:has(.shop) main,
+.app:has(.shop) .play,
+.view.controller:has(.shop),
+.shop {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.view.controller:has(.shop) {
+  width: 100%;
+}
+
+.view .shop__money,
+.shop__ready {
+  position: static;
+  flex: none;
+}
+
+.shop__items {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  align-content: start;
+  column-gap: 2rem;
+  min-height: 0;
+  padding-right: 0.5rem;
+  overflow-y: auto;
+  scrollbar-color: var(--metal-dark) transparent;
+  scrollbar-width: thin;
+}
+
+.shop__ready {
+  margin-top: 0.75rem;
+}
+
+.view.controller:has(.shop) .controller__status {
+  margin: 0 0 0.5rem;
+}
+
+.app:has(.shop) .play__side {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.shop {
+  width: 100%;
+  margin: 0;
+}
+
+/* The shop leaves as much of the window to its list as it can: the way out is a small button in the
+   corner of the plate, and the rows above the list are close together */
+.view.controller:has(.shop) {
+  position: relative;
+}
+
+.view.controller:has(.shop) .controller__leave {
+  position: absolute;
+  top: 1rem;
+  right: 1.5rem;
+  width: auto;
+  margin: 0;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.875rem;
+}
+
+.view.controller:has(.shop) .controller__top,
+.view.controller:has(.shop) h2 {
+  margin-bottom: 0.25rem;
+}
+
+.shop__ready {
+  padding: 0.6rem;
+}
+
+@media (max-width: 480px) {
+  .view.controller:has(.shop) .controller__leave {
+    top: 0.6rem;
+    right: 0.6rem;
+  }
+}
+
+/* The bar of an online round keeps its height when its controls give way to a message, so that the
+   field under it does not move */
+.bar {
+  align-content: flex-start;
+  min-height: 3.3rem;
+}
+
+@media (max-width: 899px) {
+  .bar {
+    min-height: 10.3rem;
+  }
+}
+
+/* A question that has to be answered before anything else: a plate in the middle, over everything */
+.ask {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.ask__plate {
+  --text: var(--ink);
+  --dim: var(--ink-dim);
+  width: min(30rem, 100%);
+  padding: 1.5rem;
+  border: 2px solid;
+  border-color: var(--metal-light) var(--metal-dark) var(--metal-dark) var(--metal-light);
+  background:
+    var(--rivet) 6px 6px / 10px 10px no-repeat,
+    var(--rivet) calc(100% - 6px) 6px / 10px 10px no-repeat,
+    var(--rivet) 6px calc(100% - 6px) / 10px 10px no-repeat,
+    var(--rivet) calc(100% - 6px) calc(100% - 6px) / 10px 10px no-repeat,
+    var(--brushed);
+  box-shadow:
+    0 0 0 1px #0a0a0c,
+    0 10px 30px rgba(0, 0, 0, 0.7);
+  color: var(--ink);
+}
+
+.ask__plate h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.4rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ask__plate p {
+  margin: 0 0 1.25rem;
+  color: var(--ink-dim);
+  line-height: 1.5;
+}
+
+.ask__answers {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+/* The answers are ordinary buttons, wherever the button that asked is */
+.ask__answers .button {
+  position: static;
+  width: auto;
+  margin: 0;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+}
