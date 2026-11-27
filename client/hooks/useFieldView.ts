@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 
 import { FieldState, RoomState } from "../../shared/protocol";
 import { applyTerrainOp } from "../../shared/sim/terrain";
+import { findWeapon } from "../../shared/weapons";
 import { noAction } from "../components/Field";
 import { Api, useApiMessages } from "./useApiConnection";
 import { useBubbles } from "./useBubbles";
@@ -38,10 +39,19 @@ export function useFieldView(api: Api, room: string) {
     } else if (message.type === "roundOver") setResult({ round: message.round, winner: message.winner });
     else if (message.type === "say") say(message.id, message.text);
     else if (message.type === "shots") {
-      // A Tracer leaves a trace of its path, and with Trace Paths on everything does
+      // A Tracer and a Smoke Tracer leave a trace of its path, and with Trace Paths on everything does
       for (const shot of message.shots) {
-        if (shot.weapon !== "tracer" && !tracesNow.current) continue;
-        const trace = action.current.traces.get(shot.id) ?? { owner: shot.owner, points: [] };
+        const weapon = findWeapon(shot.weapon);
+        if (weapon?.kind !== "tracer" && shot.part === undefined && !tracesNow.current) continue;
+        let trace = action.current.traces.get(shot.id);
+        if (!trace) {
+          trace = { owner: shot.owner, smoke: weapon?.smoke, part: shot.part, points: [] };
+          // The trace of a bomb that a weapon threw starts from where the weapon went off
+          const thrown = [...action.current.explosions]
+            .reverse()
+            .find((explosion) => explosion.weapon === shot.weapon && explosion.part === undefined);
+          if (shot.part !== undefined && thrown) trace.points.push({ x: thrown.x, y: thrown.y });
+        }
         trace.points.push({ x: shot.x, y: shot.y });
         action.current.traces.set(shot.id, trace);
       }
@@ -49,9 +59,14 @@ export function useFieldView(api: Api, room: string) {
       action.current.shots = message.shots;
       action.current.at = performance.now();
       setFlying(message.shots.length);
+    } else if (message.type === "burn") {
+      // What still spreads is told again and again: the latest telling is all of it
+      const { id, x, depths, weapon } = message;
+      const burns = action.current.burns.filter((burn) => burn.id !== id);
+      action.current.burns = [...burns, { id, x, depths, weapon, at: performance.now() }];
     } else if (message.type === "explode") {
-      const { x, y, radius, weapon } = message;
-      action.current.explosions.push({ x, y, radius, weapon, at: performance.now() });
+      const { x, y, radius, weapon, part } = message;
+      action.current.explosions.push({ x, y, radius, weapon, part, at: performance.now() });
     } else if (message.type === "terrain") {
       const { changes, tanks } = message;
       setField((current) => {

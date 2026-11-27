@@ -6,6 +6,7 @@ import {
   defaultSettings,
   HOST_GRACE,
   LOBBY_TIME,
+  MAX_ENERGY,
   ErrorCode,
   FieldState,
   JOIN_TOKEN_PERIOD,
@@ -20,13 +21,25 @@ import {
   RoomState,
   ServerMessage,
   SHOTS_INTERVAL,
+  TerrainChange,
   TURN_TIME
 } from "../shared/protocol";
 import { launch, Shot, stepShots, STEPS_PER_SECOND } from "../shared/sim/shots";
 import { changeWind, createField, removeTank } from "../shared/sim/field";
 import { createRandom, Random } from "../shared/sim/random";
-import { damageReward, isForSale, ROUND_WIN, sellCount, sellPrice, SHOP_TIME, withInterest } from "../shared/economy";
-import { DEFAULT_WEAPON, findWeapon, MAX_ITEMS, starterKit, WEAPONS } from "../shared/weapons";
+import { findAccessory } from "../shared/accessories";
+import {
+  damageReward,
+  findItem,
+  isForSale,
+  ITEMS,
+  ROUND_WIN,
+  sellCount,
+  sellPrice,
+  SHOP_TIME,
+  withInterest
+} from "../shared/economy";
+import { DEFAULT_WEAPON, findWeapon, MAX_ITEMS, starterKit } from "../shared/weapons";
 
 /** How long a room is kept when its screen is away, in milliseconds. */
 export const ROOM_TIMEOUT = 5 * 60 * 1000;
@@ -277,6 +290,9 @@ class Rooms<Member> {
       case "sell":
         this.sell(member, message.weapon);
         return true;
+      case "use":
+        this.useItem(member, message.item);
+        return true;
       case "ready":
         this.ready(member);
         return true;
@@ -365,8 +381,21 @@ class Rooms<Member> {
     const room = this.newRoom("online", member);
     room.public = open;
     // Only what is known of the settings is kept
-    const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, walls } = settings;
-    room.settings = { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, walls };
+    const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, suspendDirt, walls } =
+      settings;
+    room.settings = {
+      maxPlayers,
+      rounds,
+      turns,
+      maxWind,
+      cash,
+      interest,
+      armsLevel,
+      traces,
+      changingWind,
+      suspendDirt,
+      walls
+    };
     const player = this.addPlayer(room, member, name);
     room.hostId = player.id;
     this.openLobby(room);
@@ -585,8 +614,21 @@ class Rooms<Member> {
     if (settings.maxPlayers < room.players.length) return this.refuse(member, "not-allowed", "settings");
 
     // Only what is known of the settings is kept
-    const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, walls } = settings;
-    room.settings = { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, walls };
+    const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, suspendDirt, walls } =
+      settings;
+    room.settings = {
+      maxPlayers,
+      rounds,
+      turns,
+      maxWind,
+      cash,
+      interest,
+      armsLevel,
+      traces,
+      changingWind,
+      suspendDirt,
+      walls
+    };
     this.startIfFull(room);
     this.announce(room);
     this.sendField(room);
@@ -761,7 +803,7 @@ class Rooms<Member> {
 
   /** Before each round the shop opens, if anyone has the money to buy anything. Otherwise the round starts at once. */
   private nextRound(room: Room<Member>) {
-    const prices = WEAPONS.filter((weapon) => isForSale(weapon, room.settings.armsLevel)).map((weapon) => weapon.price);
+    const prices = ITEMS.filter((item) => isForSale(item, room.settings.armsLevel)).map((item) => item.price);
     const cheapest = Math.min(...prices);
     if (this.shopTime > 0 && room.players.some((player) => player.money >= cheapest)) {
       room.phase = "shop";
@@ -796,7 +838,7 @@ class Rooms<Member> {
     if (!session?.player) return this.refuse(member, "not-allowed", "buy");
     const { room, player } = session;
     if (room.phase !== "shop") return this.refuse(member, "wrong-phase", "buy");
-    const weapon = findWeapon(id);
+    const weapon = findItem(id);
     if (!weapon || !isForSale(weapon, room.settings.armsLevel)) return this.refuse(member, "no-weapon", "buy");
     if (player.money < weapon.price) return this.refuse(member, "no-money", "buy");
     const count = (player.weapons[id] ?? 0) + weapon.bundle;
@@ -813,7 +855,7 @@ class Rooms<Member> {
     if (!session?.player) return this.refuse(member, "not-allowed", "sell");
     const { room, player } = session;
     if (room.phase !== "shop") return this.refuse(member, "wrong-phase", "sell");
-    const weapon = findWeapon(id);
+    const weapon = findItem(id);
     const owned = player.weapons[id] ?? 0;
     if (!weapon || owned <= 0) return this.refuse(member, "no-weapon", "sell");
 
@@ -826,6 +868,37 @@ class Rooms<Member> {
     }
     this.sendWeapons(player);
     this.announce(room);
+  }
+
+  /**
+   * A player uses an accessory during a round: a battery gives energy back to the tank, a shield is
+   * put up around it in place of the one it may have had. A parachute is not used: it opens by itself.
+   */
+  private useItem(member: Member, id: string) {
+    const session = this.sessions.get(member);
+    if (!session?.player) return this.refuse(member, "not-allowed", "use");
+    const { room, player } = session;
+    const tank = room.phase === "playing" && room.field?.tanks.find((candidate) => candidate.id === player.id);
+    if (!tank || room.nextRoundTimer) return this.refuse(member, "wrong-phase", "use");
+    if (tank.energy <= 0) return this.refuse(member, "destroyed", "use");
+    const accessory = findAccessory(id);
+    if (!accessory || accessory.kind === "parachute" || !(player.weapons[id] > 0)) {
+      return this.refuse(member, "no-weapon", "use");
+    }
+    if (accessory.kind === "battery") {
+      // A battery is of no use to a tank that has all of its energy
+      if (tank.energy >= MAX_ENERGY) return this.refuse(member, "not-allowed", "use");
+      tank.energy = Math.min(MAX_ENERGY, tank.energy + accessory.strength);
+    } else {
+      tank.shield = accessory.strength;
+      tank.shieldMax = accessory.strength;
+    }
+    player.weapons[id] -= 1;
+    if (player.weapons[id] <= 0) delete player.weapons[id];
+    this.send(member, { type: "energy", energy: tank.energy, shield: tank.shield });
+    this.sendWeapons(player);
+    // Those who show the field see the energy and the shield of the tank
+    this.show(room, { type: "terrain", changes: [], tanks: room.field!.tanks });
   }
 
   private ready(member: Member) {
@@ -877,8 +950,17 @@ class Rooms<Member> {
       if (!room.field || room.shots.length === 0) continue;
 
       let paid = false;
+      // The changes to the dirt during a tick are told together: what digs changes it at every step
+      const changes: TerrainChange[] = [];
+      // The tanks are told with the dirt, also when only they changed: what burns them does not change the dirt
+      let told = false;
       for (let step = 0; step < (STEPS_PER_SECOND * SHOTS_INTERVAL) / 1000; step++) {
-        const { shots, events } = stepShots(room.field, room.shots, () => room.nextShot++);
+        // The parachutes of the players are among what they have: one that opens is used up
+        const parachutes = Object.fromEntries(room.players.map((player) => [player.id, player.weapons.parachute ?? 0]));
+        // With Suspend Dirt the dirt an explosion leaves in the air stays there, as often as the room is set to
+        const { settings, random } = room;
+        const hangs = () => random() * 100 < settings.suspendDirt;
+        const { shots, events } = stepShots(room.field, room.shots, () => room.nextShot++, parachutes, hangs);
         room.shots = shots;
         for (const event of events) {
           if (event.event === "damage") {
@@ -888,25 +970,49 @@ class Rooms<Member> {
             paid = true;
             // The player is told the energy of its own tank; the screen gets it with the tanks below
             const hit = room.players.find((player) => player.id === event.id);
-            if (hit?.member) this.send(hit.member, { type: "energy", energy: event.energy });
+            const shield = room.field.tanks.find((tank) => tank.id === event.id)?.shield ?? 0;
+            if (hit?.member) this.send(hit.member, { type: "energy", energy: event.energy, shield });
+          } else if (event.event === "shield") {
+            // Damage to a shield pays as damage to the tank would have
+            const shooter = room.players.find((player) => player.id === event.by);
+            if (shooter) shooter.money += damageReward(false, event.amount, false);
+            paid = true;
+            const owner = room.players.find((player) => player.id === event.id);
+            const tank = room.field.tanks.find((candidate) => candidate.id === event.id);
+            if (owner?.member && tank) {
+              this.send(owner.member, { type: "energy", energy: tank.energy, shield: tank.shield });
+            }
+          } else if (event.event === "parachute") {
+            const owner = room.players.find((player) => player.id === event.id);
+            if (owner) {
+              owner.weapons.parachute = (owner.weapons.parachute ?? 1) - 1;
+              if (owner.weapons.parachute <= 0) delete owner.weapons.parachute;
+              this.sendWeapons(owner);
+            }
+          } else if (event.event === "burn") {
+            const { id, x, depths, weapon } = event;
+            this.show(room, { type: "burn", id, x, depths, weapon });
           } else if (event.event === "explode") {
-            const { x, y, radius, weapon } = event;
-            this.show(room, { type: "explode", x, y, radius, weapon });
+            const { x, y, radius, weapon, part } = event;
+            this.show(room, { type: "explode", x, y, radius, weapon, ...(part === undefined ? {} : { part }) });
           } else {
-            this.show(room, { type: "terrain", changes: event.ops, tanks: room.field.tanks });
+            changes.push(...event.ops);
+            told = true;
           }
         }
       }
+      if (told) this.show(room, { type: "terrain", changes, tanks: room.field.tanks });
       // The money of the players is in the state of the room
       if (paid) this.announce(room);
       // Also when the last one has gone: an empty list tells that nothing is in the air any more
       if (this.viewers(room).length > 0) {
-        const shots = room.shots.map(({ id, owner, weapon, x, y }) => ({
+        const shots = room.shots.map(({ id, owner, weapon, x, y, part }) => ({
           id,
           owner,
           weapon,
           x: Math.round(x),
-          y: Math.round(y)
+          y: Math.round(y),
+          ...(part === undefined ? {} : { part })
         }));
         this.show(room, { type: "shots", shots });
       }
@@ -1060,7 +1166,7 @@ class Rooms<Member> {
     if (tank && player.member) {
       this.send(player.member, { type: "aim", id: tank.id, angle: tank.angle, power: tank.power });
       this.send(player.member, { type: "reload", time: Math.max(0, player.reloadedAt - Date.now()) });
-      this.send(player.member, { type: "energy", energy: tank.energy });
+      this.send(player.member, { type: "energy", energy: tank.energy, shield: tank.shield });
     }
   }
 

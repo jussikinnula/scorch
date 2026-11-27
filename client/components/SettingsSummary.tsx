@@ -14,6 +14,7 @@ export function describeSettings(settings: RoomSettings): string[] {
     `${formatMoney(settings.cash)} at start`,
     `${settings.interest} % interest`,
     `arms level ${settings.armsLevel}`,
+    ...(settings.suspendDirt > 0 ? [`dirt hangs ${settings.suspendDirt} % of the time`] : []),
     ...(settings.traces ? ["every shot leaves a trace"] : [])
   ];
 }

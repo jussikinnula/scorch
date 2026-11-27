@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 
 import { FieldState, PlayerInfo, ShotState, SHOTS_INTERVAL, TankState } from "../../shared/protocol";
 import { FIELD_WIDTH, TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "../../shared/sim/field";
+import { groundAt, Terrain } from "../../shared/sim/terrain";
 import { findWeapon, WeaponKind } from "../../shared/weapons";
 import { playerColor } from "../colors";
 import { Bubbles } from "../hooks/useBubbles";
@@ -16,15 +17,39 @@ export interface Action {
   previous: ShotState[];
   /** When the latest ones were told, on the clock of performance.now(). */
   at: number;
-  explosions: { x: number; y: number; radius: number; weapon: string; at: number }[];
+  explosions: { x: number; y: number; radius: number; weapon: string; part?: number; at: number }[];
+  /**
+   * What burns on the ground, by its id: how deep it lies on each column from x to the right, and
+   * when it was last told: it burns on for a while after that.
+   */
+  burns: { id: number; x: number; depths: number[]; weapon: string; at: number }[];
   /**
    * The traces of this round: the places the server told of each projectile that leaves a trace, by
-   * the id of the projectile, with the id of the player who fired it. They stay until the next round.
+   * the id of the projectile, with the id of the player who fired it. They stay until the next round,
+   * but for those of the bombs that a weapon threw (part), which fade soon after the bomb has gone off.
    */
-  traces: Map<number, { owner: number; points: { x: number; y: number }[] }>;
+  traces: Map<number, Trace>;
 }
 
-export const noAction = (): Action => ({ shots: [], previous: [], at: 0, explosions: [], traces: new Map() });
+export interface Trace {
+  owner: number;
+  /** The thick trace of a Smoke Tracer. */
+  smoke?: boolean;
+  /** Which of the bombs that a weapon threw this is the trace of, if it is of one. */
+  part?: number;
+  /** When its projectile was first seen to be gone, on the clock of performance.now(). */
+  gone?: number;
+  points: { x: number; y: number }[];
+}
+
+export const noAction = (): Action => ({
+  shots: [],
+  previous: [],
+  at: 0,
+  explosions: [],
+  burns: [],
+  traces: new Map()
+});
 
 interface Props {
   field: FieldState;
@@ -58,6 +83,9 @@ export function layoutField(field: { width: number; height: number }, width: num
   return { scale, left: (width - field.width * scale) / 2, top: height - field.height * scale };
 }
 
+/** The colour of the dirt. The themes of the original, with their own colours of land and sky, come later. */
+const DIRT_COLOR = "#7a5c33";
+
 /** Draws the sky and the terrain, which change rarely, to a canvas of their own to be copied on each redraw. */
 function drawBackground(field: FieldState, width: number, height: number, layout: Layout) {
   const canvas = document.createElement("canvas");
@@ -73,11 +101,7 @@ function drawBackground(field: FieldState, width: number, height: number, layout
   context.fillStyle = sky;
   context.fillRect(0, 0, width, height);
 
-  const dirt = context.createLinearGradient(0, 0, 0, height);
-  dirt.addColorStop(0, "#8a6a3c");
-  dirt.addColorStop(1, "#3a2a18");
   const { scale, left, top } = layout;
-  const surface = Math.max(1, Math.round(2 * scale));
 
   /**
    * Draws the dirt of a column of the terrain over the canvas from one x to another. The edges are
@@ -89,11 +113,9 @@ function drawBackground(field: FieldState, width: number, height: number, layout
     const columnWidth = Math.ceil(to) - x;
     for (let i = 0; i + 1 < column.length; i += 2) {
       const y = Math.round(top + column[i] * scale);
-      context.fillStyle = dirt;
+      // The dirt is of one colour all through, as in the original
+      context.fillStyle = DIRT_COLOR;
       context.fillRect(x, y, columnWidth, Math.round(top + column[i + 1] * scale) - y);
-      // The surface of the dirt is lighter
-      context.fillStyle = "#c9a05a";
-      context.fillRect(x, y, columnWidth, surface);
     }
   };
 
@@ -126,7 +148,7 @@ function drawTanks(
       context.lineTo(tank.x + TANK_WIDTH / 2, tank.y);
       context.fill();
       if (player) {
-        context.font = "600 14px system-ui, sans-serif";
+        context.font = '16px "IBM VGA", ui-monospace, monospace';
         context.textAlign = "center";
         context.fillStyle = "rgba(255, 255, 255, 0.45)";
         context.fillText(player.name, tank.x, tank.y - TANK_HEIGHT - 6);
@@ -148,6 +170,18 @@ function drawTanks(
     context.lineTo(pivot.x + Math.cos(angle) * TURRET_LENGTH, pivot.y - Math.sin(angle) * TURRET_LENGTH);
     context.stroke();
 
+    if (tank.shield > 0) {
+      // A shield is a ring around the tank: white when whole, and the darker a grey the less of it is left, as in the original
+      const shade = shieldShade(tank.shield, tank.shieldMax);
+      context.strokeStyle = `rgb(${shade}, ${shade}, ${shade})`;
+      context.fillStyle = `rgba(${shade}, ${shade}, ${shade}, 0.12)`;
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(tank.x, tank.y - TANK_HEIGHT / 2, TANK_WIDTH * 0.9, 0, 2 * Math.PI);
+      context.fill();
+      context.stroke();
+    }
+
     // The body: a dome on top of a base
     context.fillStyle = color;
     context.beginPath();
@@ -158,7 +192,7 @@ function drawTanks(
     context.fillRect(tank.x - TANK_WIDTH / 2, tank.y - 4, TANK_WIDTH, 4);
 
     if (player) {
-      context.font = "600 14px system-ui, sans-serif";
+      context.font = '16px "IBM VGA", ui-monospace, monospace';
       context.textAlign = "center";
       context.lineWidth = 3;
       context.strokeStyle = "rgba(0, 0, 0, 0.6)";
@@ -216,7 +250,7 @@ export function wrapText(text: string, fits: (line: string) => boolean) {
 }
 
 function drawBubbles(context: CanvasRenderingContext2D, field: FieldState, bubbles: Bubbles) {
-  context.font = "500 14px system-ui, sans-serif";
+  context.font = '16px "IBM VGA", ui-monospace, monospace';
   context.textAlign = "center";
   context.textBaseline = "middle";
 
@@ -251,15 +285,32 @@ function drawBubbles(context: CanvasRenderingContext2D, field: FieldState, bubbl
   context.textBaseline = "alphabetic";
 }
 
+/**
+ * How light the grey of a shield is, from 0 to 255: white when it is whole, nearly black when it is
+ * about to go. The darkest is not quite black, so that it still shows against a dark sky.
+ */
+export function shieldShade(shield: number, shieldMax: number) {
+  const left = shieldMax > 0 ? Math.min(1, Math.max(0, shield / shieldMax)) : 1;
+  return Math.round(50 + 205 * left);
+}
+
 /** How long an explosion is shown, in milliseconds: the bigger it is, the longer. */
 const explosionTime = (radius: number) => 400 + radius * 5;
 /** The colours of what a weapon does when it goes off, from the middle outwards. */
 const EXPLOSION_COLORS: Record<WeaponKind, [string, string, string]> = {
   blast: ["#fff", "#ffe066", "#f0562a"],
   mirv: ["#fff", "#ffe066", "#f0562a"],
+  leapfrog: ["#fff", "#c8f76a", "#3fae4a"],
+  funky: ["#fff", "#7cf5ff", "#d94cff"],
   roller: ["#fff", "#ffe066", "#f0562a"],
   dirt: ["#b98a52", "#a3743f", "#8a5f31"],
   riot: ["#fff", "#bfe6ff", "#5aa9e6"],
+  charge: ["#fff", "#bfe6ff", "#5aa9e6"],
+  digger: ["#fff", "#e0c080", "#8a5f31"],
+  disrupter: ["#fff", "#e0c080", "#8a5f31"],
+  liquid: ["#b98a52", "#a3743f", "#8a5f31"],
+  napalm: ["#fff", "#ffb347", "#e0401f"],
+  sandhog: ["#fff", "#ffe066", "#f0562a"],
   tracer: ["#fff", "#fff", "#fff"]
 };
 /** How many of the latest places of a projectile make its tail. */
@@ -286,19 +337,207 @@ export function placeShots(action: Pick<Action, "shots" | "previous" | "at">, no
   });
 }
 
+/** The colours of the bombs that a Funky Bomb throws, of their traces and of their explosions. */
+export const PART_COLORS = ["#ff4d4d", "#ffd23f", "#4dff88", "#4dd2ff", "#b266ff", "#ff7ad9"];
+const partColor = (part: number) => PART_COLORS[part % PART_COLORS.length];
+/** How long the trace of a thrown bomb is still shown after the bomb has gone off, in milliseconds. */
+const PART_TRACE_TIME = 700;
+
+/**
+ * The points a trace is drawn through. The server tells where a projectile is a little before it is
+ * drawn there: while it flies, its trace ends where the projectile is drawn, not ahead of it.
+ */
+export function tracePoints(trace: Pick<Trace, "points">, flying: { x: number; y: number } | undefined) {
+  return flying ? [...trace.points.slice(0, -1), { x: flying.x, y: flying.y }] : trace.points;
+}
+
+/** How long what was spilled burns on the ground, in milliseconds. */
+export const BURN_TIME = 2500;
+
+/** A number from 0 up to 1 that looks like chance but is always the same for the same number. */
+const chance = (seed: number) => {
+  const value = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
+  return value - Math.floor(value);
+};
+
+/**
+ * How much of a tongue of flame there is over a column right now, from 0 to 1. The fire is a row of
+ * tongues of a given width side by side; each of them rises and falls at a pace and a moment of its
+ * own, with a quick flicker on top, so that no two move together.
+ */
+function tongueAt(column: number, now: number, width: number, shift: number) {
+  const place = (column + shift) / width;
+  const tongue = Math.floor(place);
+  const shape = Math.sin(Math.PI * (place - tongue)) ** 2;
+  const pace = 0.004 + 0.011 * chance(tongue * 7.3 + width);
+  const moment = 2 * Math.PI * chance(tongue * 3.1 + width * 2);
+  const flicker = 0.12 * Math.sin(now * (0.025 + 0.02 * chance(tongue + width * 5)) + moment * 3);
+  return shape * Math.min(1, Math.max(0, 0.5 + 0.5 * Math.sin(now * pace + moment) + flicker));
+}
+
+/**
+ * How high the flame of something that burns stands on a column, in pixels: by how deep it lies
+ * there, dying down towards the end. The height changes smoothly from a column to the next and from
+ * a moment to the next, but each tongue of the fire moves in its own time.
+ *
+ * @param age How much of its time it has burned, from 0 to 1.
+ */
+export function flameHeight(depth: number, column: number, now: number, age: number) {
+  if (depth <= 0 || age >= 1) return 0;
+  // Narrow tongues in front of wider ones that are out of step with them
+  const tongue = Math.max(tongueAt(column, now, 13, 0), 0.8 * tongueAt(column, now, 21, 7));
+  return (7 + depth * 2.6) * (0.4 + 1.1 * tongue) * Math.min(1, (1 - age) * 3);
+}
+
+/** A wisp of smoke rises from every this many columns of a fire. */
+const SMOKE_EVERY = 26;
+/** How many times a wisp of smoke is drawn along its way. */
+const SMOKE_TRAIL = 6;
+/** How high a wisp of smoke rises before it is gone, in pixels. */
+const SMOKE_RISE = 70;
+
+/**
+ * The wisps of smoke over a fire right now: where each is, how large and how thick. A wisp rises
+ * from the fire, curls and thins out, and then a new one starts from the same place: each at a pace
+ * of its own. Nothing is remembered from one moment to the next: it all follows from the time.
+ */
+export function smokeWisps(from: number, columns: number, now: number) {
+  const wisps: { x: number; rise: number; radius: number; thickness: number }[] = [];
+  for (let wisp = Math.floor(from / SMOKE_EVERY); wisp * SMOKE_EVERY < from + columns; wisp++) {
+    const start = wisp * SMOKE_EVERY + chance(wisp * 1.7) * SMOKE_EVERY;
+    if (start < from || start >= from + columns) continue;
+    const time = 1300 + 1400 * chance(wisp * 5.9);
+    const life = ((now + time * chance(wisp * 9.1)) % time) / time;
+    const curl = Math.sin(life * (4 + 4 * chance(wisp * 2.3)) + wisp) * (4 + 10 * life);
+    wisps.push({ x: start + curl, rise: life * SMOKE_RISE, radius: 2.5 + 6 * life, thickness: 0.3 * (1 - life) });
+  }
+  return wisps;
+}
+
+/**
+ * How a fire looks: its layers from the outside in (how high each stands as a part of the flame, and
+ * its colour), the colour of its glow and how far that reaches, and how high it stands as a multiple
+ * of an ordinary fire.
+ */
+interface Fire {
+  layers: [number, string][];
+  glow: string;
+  blur: number;
+  tall: number;
+}
+const FIRE: Fire = {
+  layers: [
+    [1, "#e0401f"],
+    [0.62, "#ff9a3c"],
+    [0.3, "#ffe9a0"]
+  ],
+  glow: "#ff6a1f",
+  blur: 14,
+  tall: 1
+};
+/** What burns hotter is whiter, brighter and taller: yellow where an ordinary fire is red, with a white heart. */
+const HOT_FIRE: Fire = {
+  layers: [
+    [1, "#ff8a1f"],
+    [0.7, "#ffe24a"],
+    [0.42, "#ffffff"]
+  ],
+  glow: "#ffd98a",
+  blur: 26,
+  tall: 1.4
+};
+const fireOf = (weapon: string) => (weapon === "hot-napalm" ? HOT_FIRE : FIRE);
+/** Over how many columns to each side the depth of what burns is evened out, so that the fire has no steps. */
+const FLAME_SMOOTH = 4;
+
+function drawBurns(context: CanvasRenderingContext2D, action: Action, terrain: Terrain, height: number, now: number) {
+  action.burns = action.burns.filter((burn) => now - burn.at < BURN_TIME);
+  for (const burn of action.burns) {
+    const age = (now - burn.at) / BURN_TIME;
+    // The top of the fire over each column, and the ground under it
+    const flames = burn.depths.map((_, index) => {
+      let sum = 0;
+      for (let k = -FLAME_SMOOTH; k <= FLAME_SMOOTH; k++) sum += burn.depths[index + k] ?? 0;
+      const x = burn.x + index;
+      return { x, ground: groundAt(terrain, x, height), flame: flameHeight(sum / (2 * FLAME_SMOOTH + 1), x, now, age) };
+    });
+    if (flames.length === 0) continue;
+    const fire = fireOf(burn.weapon);
+    // One shape for each layer: red outside with a glow, yellow inside
+    fire.layers.forEach(([part, color], layer) => {
+      context.fillStyle = color;
+      context.shadowColor = fire.glow;
+      context.shadowBlur = layer === 0 ? fire.blur : 0;
+      context.globalAlpha = 0.92;
+      context.beginPath();
+      context.moveTo(flames[0].x, flames[0].ground + 1);
+      for (const { x, ground, flame } of flames) context.lineTo(x + 0.5, ground - flame * part * fire.tall);
+      for (let index = flames.length - 1; index >= 0; index--)
+        context.lineTo(flames[index].x + 1, flames[index].ground + 1);
+      context.closePath();
+      context.fill();
+    });
+    context.shadowBlur = 0;
+    // Smoke rises from the tops of the flames, and goes with the fire
+    context.fillStyle = "#b9b2ad";
+    // Each wisp is drawn where it is and where it was a moment ago, a few times over: a curl, not a ball
+    for (let trail = 0; trail < SMOKE_TRAIL; trail++) {
+      const wisps = smokeWisps(burn.x, burn.depths.length, now - trail * 90);
+      const heads = trail === 0 ? wisps : smokeWisps(burn.x, burn.depths.length, now);
+      wisps.forEach((wisp, index) => {
+        const under = flames[Math.min(flames.length - 1, Math.max(0, Math.round(wisp.x) - burn.x))];
+        // Not what is left of the wisp before this one, which has just gone
+        if (under.flame <= 0 || wisp.rise > heads[index].rise) return;
+        context.globalAlpha = wisp.thickness * Math.min(1, (1 - age) * 3);
+        context.beginPath();
+        context.arc(wisp.x, under.ground - under.flame * fire.tall - wisp.rise, wisp.radius, 0, 2 * Math.PI);
+        context.fill();
+      });
+    }
+    context.globalAlpha = 1;
+  }
+}
+
 function drawAction(
   context: CanvasRenderingContext2D,
   action: Action,
   tails: Map<number, { x: number; y: number }[]>,
   now: number
 ) {
-  // A trace is a row of dots in the colour of the one who fired, as in the original
-  for (const trace of action.traces.values()) {
-    context.fillStyle = playerColor(trace.owner);
-    for (const point of trace.points) context.fillRect(point.x - 1, point.y - 1, 2, 2);
+  const shots = placeShots(action, now);
+  for (const [id, trace] of action.traces) {
+    const flying = shots.find((shot) => shot.id === id);
+    const points = tracePoints(trace, flying);
+    if (trace.part !== undefined && !flying) {
+      // The trace of a thrown bomb fades after the bomb has gone off
+      trace.gone ??= now;
+      if (now - trace.gone > PART_TRACE_TIME) {
+        action.traces.delete(id);
+        continue;
+      }
+      context.globalAlpha = 1 - (now - trace.gone) / PART_TRACE_TIME;
+    }
+    if (trace.smoke || trace.part !== undefined) {
+      // Smoke is one even line, thick and thin at once: easy to see, and what is behind it shows through.
+      // The trace of a thrown bomb is a thin line in the colour of the bomb.
+      if (trace.smoke) context.globalAlpha = 0.55;
+      context.strokeStyle = trace.part === undefined ? playerColor(trace.owner) : partColor(trace.part);
+      context.lineWidth = trace.smoke ? 5 : 2;
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.beginPath();
+      points.forEach((point, index) =>
+        index === 0 ? context.moveTo(point.x, point.y) : context.lineTo(point.x, point.y)
+      );
+      context.stroke();
+    } else {
+      // A trace is a row of dots in the colour of the one who fired, as in the original
+      context.fillStyle = playerColor(trace.owner);
+      for (const point of points) context.fillRect(point.x - 1, point.y - 1, 2, 2);
+    }
+    context.globalAlpha = 1;
   }
 
-  const shots = placeShots(action, now);
   for (const id of tails.keys()) if (!shots.some((shot) => shot.id === id)) tails.delete(id);
 
   for (const shot of shots) {
@@ -327,7 +566,7 @@ function drawAction(
     context.fillStyle = "#fff";
     context.beginPath();
     // A tracer is only a light: smaller than what does harm
-    context.arc(shot.x, shot.y, shot.weapon === "tracer" ? 1.5 : 3, 0, 2 * Math.PI);
+    context.arc(shot.x, shot.y, findWeapon(shot.weapon)?.kind === "tracer" ? 1.5 : 3, 0, 2 * Math.PI);
     context.fill();
   }
 
@@ -336,7 +575,10 @@ function drawAction(
     // The ball of fire grows fast to its full size and then fades
     const age = (now - explosion.at) / explosionTime(explosion.radius);
     const radius = Math.max(1, explosion.radius * Math.min(1, age * 4));
-    const colors = EXPLOSION_COLORS[findWeapon(explosion.weapon)?.kind ?? "blast"];
+    const colors =
+      explosion.part === undefined
+        ? EXPLOSION_COLORS[findWeapon(explosion.weapon)?.kind ?? "blast"]
+        : ["#fff", partColor(explosion.part), partColor(explosion.part)];
     const fire = context.createRadialGradient(explosion.x, explosion.y, 0, explosion.x, explosion.y, radius);
     fire.addColorStop(0, colors[0]);
     fire.addColorStop(0.4, colors[1]);
@@ -455,7 +697,10 @@ export default function Field({ field, players, bubbles, action, turn, boxed = f
       drawnAt.current = now;
       const seen = { ...field, tanks: fallTanks(field.tanks, shown.current, seconds) };
       drawTanks(context, seen, players, turn, now);
-      if (action) drawAction(context, action, tails.current, now);
+      if (action) {
+        drawBurns(context, action, field.terrain, field.height, now);
+        drawAction(context, action, tails.current, now);
+      }
       if (bubbles) drawBubbles(context, seen, bubbles);
       frame = window.requestAnimationFrame(draw);
     };

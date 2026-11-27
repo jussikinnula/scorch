@@ -26,7 +26,9 @@ function placeTank(field: FieldState, id: number, x: number): TankState {
     y: groundAt(field.terrain, x, field.height),
     angle: x < field.width / 2 ? START_ANGLE : 180 - START_ANGLE,
     power: START_POWER,
-    energy: MAX_ENERGY
+    energy: MAX_ENERGY,
+    shield: 0,
+    shieldMax: 0
   };
   field.tanks.push(tank);
   field.tanks.sort((a, b) => a.id - b.id);

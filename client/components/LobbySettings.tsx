@@ -17,6 +17,9 @@ import { formatMoney } from "../money";
 /** The amounts of money the screen offers for the start of a game. */
 const CASH_STEPS = [0, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000];
 
+/** How much a press changes the chance that dirt stays in the air, in per cent. */
+const SUSPEND_STEP = 10;
+
 interface Props {
   /** The settings as they are shown: those the server last told. */
   settings: RoomSettings;
@@ -214,6 +217,28 @@ export default function LobbySettings({ settings, players, current, change }: Pr
             {{ none: "None", rubber: "Rubber", wraparound: "Wraparound" }[walls]}
           </button>
         ))}
+      </div>
+      <div className="stepper">
+        <span id="suspend-dirt">Suspend dirt</span>
+        <button
+          type="button"
+          className="button button--small"
+          aria-label="Less suspended dirt"
+          onClick={() => change({ suspendDirt: Math.max(0, current().suspendDirt - SUSPEND_STEP) })}
+          disabled={settings.suspendDirt <= 0}
+        >
+          −
+        </button>
+        <output aria-labelledby="suspend-dirt">{settings.suspendDirt} %</output>
+        <button
+          type="button"
+          className="button button--small"
+          aria-label="More suspended dirt"
+          onClick={() => change({ suspendDirt: Math.min(100, current().suspendDirt + SUSPEND_STEP) })}
+          disabled={settings.suspendDirt >= 100}
+        >
+          +
+        </button>
       </div>
       <div className="stepper" role="group" aria-label="Changing wind">
         <span>Changing wind</span>

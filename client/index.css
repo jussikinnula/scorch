@@ -134,11 +134,101 @@ a.button {
   text-decoration: none;
 }
 
+/* The front page: the name of the game over a picture, and the two ways to play */
+
+.app--home {
+  background:
+    linear-gradient(rgba(16, 16, 24, 0.3), rgba(16, 16, 24, 0.8)),
+    url("./assets/front.jpg") center / cover no-repeat;
+}
+
+/* The name is on the page itself, large: not in the corner too */
+.app--home .app__title {
+  visibility: hidden;
+}
+
+.app--home main {
+  display: flex;
+  flex: 1;
+}
+
+.home {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  text-align: center;
+}
+
+.view .home__title {
+  max-width: none;
+  margin: 0;
+  /* The space after the last letter is taken back, so that the name is in the middle */
+  padding-left: 0.18em;
+  color: #fff;
+  font-size: clamp(3rem, 14vw, 9rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.18em;
+  text-shadow:
+    0 0 2rem rgba(255, 120, 30, 0.7),
+    0 0.2rem 0.4rem #000;
+  text-transform: uppercase;
+}
+
+.home__ways {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+.home__way {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 16rem;
+}
+
+.home__way .button {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1.15rem;
+}
+
+.view .home__way p,
+.view.home .note {
+  margin: 0;
+  color: var(--text);
+  text-shadow: 0 1px 3px #000;
+}
+
 .home__return {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 0.75rem;
   max-width: none;
+}
+
+/* The lobby of the online games, and the page a new one is set up on */
+
+.lobby {
+  max-width: 40rem;
+}
+
+.lobby__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.lobby__top h2 {
+  margin: 0;
 }
 
 .button--chosen {
@@ -460,6 +550,21 @@ a.button {
   font-size: 3rem;
   font-weight: 700;
   text-align: center;
+}
+
+/* The result of a round waits a moment: the last explosion is watched first */
+.game__result,
+.bar .bar__message--result {
+  animation: result-appears 0.4s ease-out 1.5s both;
+}
+
+@keyframes result-appears {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .game__result > span {
@@ -1092,15 +1197,6 @@ a.button {
 
 /* The settings of an online game: chosen on the front page, and shown as a list after that */
 
-.home__settings {
-  width: 100%;
-}
-
-.home__settings summary {
-  cursor: pointer;
-  color: var(--text);
-}
-
 .home__games strong {
   margin-left: 0.5rem;
   font-weight: 400;
@@ -1123,4 +1219,489 @@ a.button {
   background: #1c1c2a;
   color: var(--text);
   font-size: 0.875rem;
+}
+
+/* The accessories of the tank that are used during a round */
+
+.gear {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 28rem;
+  margin: 0.6rem auto 0;
+}
+
+.bar .gear {
+  max-width: none;
+  margin: 0;
+}
+
+.gear__shield,
+.gear__worn {
+  padding: 0.2rem 0.6rem;
+  border-radius: 1rem;
+  background: #1c2a3a;
+  color: var(--text);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.gear__worn {
+  background: #2a2a3a;
+  color: var(--dim);
+}
+
+/* The look of the original: its text font, a stencil for the name of the game, and panels and
+   buttons of metal. This is laid over what is above: the rules above say where things are and how
+   large, these say what they are made of. */
+
+@font-face {
+  font-family: "IBM VGA";
+  src: url("./assets/fonts/ibm-vga-8x16.woff") format("woff");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Black Ops One";
+  src: url("./assets/fonts/black-ops-one.woff2") format("woff2");
+  font-display: swap;
+}
+
+:root {
+  --metal-light: #eceef2;
+  --metal: #b3b7be;
+  --metal-shade: #868b94;
+  --metal-dark: #454952;
+  --ink: #0e0f13;
+  --ink-dim: #3b3f48;
+  --lamp: #6dff8a;
+  /* Fine lines along the plate, as of brushed metal, over a plate that is lighter at the top */
+  --brushed:
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.07) 0 1px,
+      rgba(0, 0, 0, 0.05) 1px 2px,
+      rgba(255, 255, 255, 0) 2px 4px
+    ),
+    linear-gradient(180deg, #c6c9cf 0%, #a9adb5 45%, #969ba4 100%);
+  /* A rivet: a dark ring around a light head */
+  --rivet: radial-gradient(circle, #f4f5f7 0 1.5px, #6b7079 2px 3.5px, rgba(0, 0, 0, 0.35) 4px 4.5px, transparent 5px);
+  font-family: "IBM VGA", ui-monospace, "Courier New", monospace;
+  /* The font is made of whole pixels: it is not smoothed */
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+}
+
+body {
+  /* A dark plate behind everything */
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #1d1f25, #121318);
+  background-attachment: fixed;
+}
+
+button,
+input,
+select,
+output {
+  font-family: inherit;
+}
+
+.app__title,
+.view .home__title {
+  font-family: "Black Ops One", "IBM VGA", sans-serif;
+  font-weight: 400;
+}
+
+.app__title {
+  color: #e8a020;
+  font-size: 1.75rem;
+  text-shadow: 0 2px 0 #000;
+}
+
+/* A plate of metal with a rivet in each corner: the pages that are not the game itself, and what is
+   laid over the game */
+.view:not(.home),
+.bar,
+.game__result,
+.game__notice,
+.game__turn,
+.game__wind,
+.online__rest {
+  --text: var(--ink);
+  --dim: var(--ink-dim);
+  --error: #a3140f;
+  border: 2px solid;
+  border-color: var(--metal-light) var(--metal-dark) var(--metal-dark) var(--metal-light);
+  border-radius: 0;
+  background:
+    var(--rivet) 6px 6px / 10px 10px no-repeat,
+    var(--rivet) calc(100% - 6px) 6px / 10px 10px no-repeat,
+    var(--rivet) 6px calc(100% - 6px) / 10px 10px no-repeat,
+    var(--rivet) calc(100% - 6px) calc(100% - 6px) / 10px 10px no-repeat,
+    var(--brushed);
+  box-shadow:
+    0 0 0 1px #0a0a0c,
+    0 6px 18px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  color: var(--ink);
+  text-shadow: none;
+}
+
+.view:not(.home) {
+  align-self: center;
+  width: 100%;
+  max-width: 60rem;
+  padding: 1.5rem;
+}
+
+.view.controller,
+.view.join {
+  max-width: 34rem;
+}
+
+.view:not(.home) a:not(.button) {
+  color: #0b2c8f;
+}
+
+/* Buttons: raised from the plate, and pressed into it when chosen or held down */
+.button {
+  border: 2px solid;
+  border-color: var(--metal-light) var(--metal-dark) var(--metal-dark) var(--metal-light);
+  border-radius: 0;
+  background: linear-gradient(180deg, #dcdfe4, #a7abb3);
+  box-shadow: 0 0 0 1px #0a0a0c;
+  color: var(--ink);
+  font-weight: 400;
+}
+
+.button:active:not(:disabled),
+.button--chosen {
+  border-color: var(--metal-dark) var(--metal-light) var(--metal-light) var(--metal-dark);
+  background: linear-gradient(180deg, #7d828b, #9a9fa8);
+}
+
+/* What is chosen is lit */
+.button--chosen {
+  background: #23252b;
+  color: #ffd24a;
+}
+
+.button:disabled {
+  opacity: 0.55;
+}
+
+/* Brass for what starts things */
+.button--primary {
+  border-color: #ffe9a8 #6b4a08 #6b4a08 #ffe9a8;
+  background: linear-gradient(180deg, #f6cf6a, #c9901c);
+  color: var(--ink);
+  font-weight: 400;
+}
+
+.button--primary:active:not(:disabled) {
+  border-color: #6b4a08 #ffe9a8 #ffe9a8 #6b4a08;
+  background: linear-gradient(180deg, #b8821a, #d9a233);
+}
+
+/* Fields to write in and values to read: windows sunk into the plate, lit from inside */
+input,
+select,
+.stepper output,
+.bar__value,
+.aim__value,
+.view .shop__money {
+  border: 2px solid;
+  border-color: var(--metal-dark) var(--metal-light) var(--metal-light) var(--metal-dark);
+  border-radius: 0;
+  background: #0b0c0f;
+  color: var(--lamp);
+}
+
+.home__online input,
+.say input {
+  border: 2px solid;
+  border-color: var(--metal-dark) var(--metal-light) var(--metal-light) var(--metal-dark);
+  border-radius: 0;
+  background: #0b0c0f;
+  color: var(--lamp);
+}
+
+input::placeholder {
+  color: #3f8f52;
+}
+
+.stepper output {
+  min-width: 3.5rem;
+  padding: 0.1rem 0.5rem;
+  text-align: center;
+}
+
+.view .shop__money {
+  padding: 0.25rem 0.75rem;
+}
+
+.view h2,
+.view h3 {
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The front page keeps its picture: only its buttons are of metal */
+.view.home .note,
+.view .home__way p {
+  font-size: 1rem;
+}
+
+/* Lines between the rows of a list: a groove in the plate */
+.home__games li,
+.shop__items li,
+.players__player,
+.standings li {
+  border-bottom: 1px solid var(--metal-shade);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.qr {
+  border-radius: 0;
+  box-shadow: 0 0 0 2px var(--metal-dark);
+}
+
+.view:not(.home) {
+  margin: 0 auto;
+}
+
+/* The bar of an online round: a strip of the same metal, with its lamps and windows */
+.bar {
+  padding: 0.35rem 1rem;
+}
+
+.weapon__select,
+.bar .weapon__select {
+  border: 2px solid;
+  border-color: var(--metal-dark) var(--metal-light) var(--metal-light) var(--metal-dark);
+  border-radius: 0;
+  background: #0b0c0f;
+  color: var(--lamp);
+}
+
+.bar__value small,
+.aim__label {
+  color: #3f8f52;
+}
+
+.bar .bar__turn,
+.controller__turn,
+.game__turn {
+  border: 2px solid;
+  border-color: var(--metal-dark) var(--metal-light) var(--metal-light) var(--metal-dark);
+  border-radius: 0;
+  background: #0b0c0f;
+  color: #3f8f52;
+}
+
+/* The lamp of one's own turn is lit */
+.bar .bar__turn--mine,
+.controller__turn--mine {
+  background: #ffb52e;
+  color: var(--ink);
+  font-weight: 400;
+  box-shadow: 0 0 10px rgba(255, 181, 46, 0.8);
+}
+
+.bar .bar__message--result {
+  border-radius: 0;
+  background: #0b0c0f;
+  color: #ffd24a;
+}
+
+.controller__energy,
+.bar .bar__energy {
+  border: 2px solid;
+  border-color: var(--metal-dark) var(--metal-light) var(--metal-light) var(--metal-dark);
+  border-radius: 0;
+}
+
+/* The field of an online game is a screen set into the panel */
+.field--boxed {
+  border: 2px solid;
+  border-color: var(--metal-dark) var(--metal-light) var(--metal-light) var(--metal-dark);
+  border-radius: 0;
+  box-shadow: 0 0 0 1px #0a0a0c;
+}
+
+.online .field--boxed {
+  max-height: calc(100dvh - 9rem);
+}
+
+.online__rest {
+  padding: 0.35rem 1rem;
+}
+
+/* The shop: its items in as many columns as fit side by side, and the money and the button that
+   closes it always in sight, at the top and the bottom of the window */
+.shop {
+  max-width: none;
+}
+
+.shop__items {
+  column-width: 19rem;
+  column-gap: 2rem;
+}
+
+.shop__items li {
+  break-inside: avoid;
+}
+
+.view .shop__money {
+  position: sticky;
+  z-index: 2;
+  top: 0.5rem;
+}
+
+.shop__money span {
+  color: #3f8f52;
+}
+
+.shop__ready {
+  position: sticky;
+  z-index: 2;
+  bottom: 0.75rem;
+  box-shadow:
+    0 0 0 1px #0a0a0c,
+    0 -6px 14px rgba(0, 0, 0, 0.45);
+}
+
+.view.controller:has(.shop) {
+  max-width: 84rem;
+}
+
+.view .shop__money {
+  max-width: none;
+}
+
+.play .view.controller {
+  max-width: 60rem;
+}
+
+.view input,
+.view select,
+.online__rest input {
+  border: 2px solid;
+  border-color: var(--metal-dark) var(--metal-light) var(--metal-light) var(--metal-dark);
+  border-radius: 0;
+  background: #0b0c0f;
+  color: var(--lamp);
+}
+
+/* The settings of a game to read: a row of small windows */
+.settings-summary li {
+  border: 1px solid;
+  border-color: var(--metal-dark) var(--metal-light) var(--metal-light) var(--metal-dark);
+  border-radius: 0;
+  background: #0b0c0f;
+  color: var(--lamp);
+}
+
+/* Small plates have no room for rivets */
+.game__wind,
+.game__notice,
+.bar,
+.online__rest {
+  background: var(--brushed);
+}
+
+.game__turn {
+  color: var(--lamp);
+}
+
+.view.controller--playing {
+  padding: 0.6rem 0.9rem;
+}
+
+/* The font has one weight. A browser would make its own bold of it by smearing the letters: what is
+   bold elsewhere is of the same weight here */
+:root {
+  font-synthesis: none;
+  /* The letters are larger than whole pixels of the font on most screens: they are smoothed after all */
+  -webkit-font-smoothing: auto;
+  font-smooth: auto;
+}
+
+/* Everything is sized by the size of the text: on a larger screen all of it is larger */
+@media (min-width: 900px) {
+  :root {
+    font-size: 20px;
+  }
+}
+
+@media (min-width: 1600px) {
+  :root {
+    font-size: 24px;
+  }
+}
+
+@media (min-width: 2400px) {
+  :root {
+    font-size: 32px;
+  }
+}
+
+/* The button that starts the game is the one that matters on its page */
+.screen .button--primary,
+.play__lobby .button--primary,
+.home__online .button--primary {
+  min-width: 18rem;
+  padding: 1rem 2.5rem;
+  font-size: 1.4rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* The windows of the values are as wide as the widest value they show, so that the buttons beside
+   them stay where they are: the most cash is $1,000,000 */
+.stepper output {
+  min-width: 6ch;
+}
+
+.stepper output[aria-labelledby="cash"] {
+  min-width: 12ch;
+}
+
+/* The bar of an online round is one row from this width on only with the smaller text */
+@media (min-width: 900px) and (max-width: 1399px) {
+  :root:has(.play--playing) {
+    font-size: 16px;
+  }
+}
+
+/* What an item costs and how many the player owns stay on one row under its name */
+.shop__name small {
+  white-space: nowrap;
+}
+
+.shop__name {
+  min-width: 0;
+}
+
+/* On a narrow phone the plate goes nearly from edge to edge, and the rows of the shop are tighter */
+@media (max-width: 480px) {
+  .app {
+    padding: 0.75rem 0.5rem;
+  }
+
+  .view:not(.home) {
+    padding: 1rem 0.75rem;
+  }
+
+  .shop__items li {
+    gap: 0.4rem;
+  }
+
+  .shop__items .button--small {
+    padding-right: 0.5rem;
+    padding-left: 0.5rem;
+  }
 }

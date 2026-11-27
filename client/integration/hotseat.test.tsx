@@ -1,5 +1,5 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -337,6 +337,7 @@ describe("a hotseat game", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -539,6 +540,7 @@ describe("a hotseat game", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -573,6 +575,7 @@ describe("a hotseat game", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -697,6 +700,7 @@ describe("a hotseat game", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -717,12 +721,12 @@ describe("a hotseat game", () => {
       expect(screen.getByRole("button", { name: "Buy Nuke" })).toBeDisabled();
       fireEvent.click(screen.getByRole("button", { name: "Buy Missile" }));
       await vi.waitFor(() => expect(screen.getByLabelText("Money")).toHaveTextContent("$8,125"), FIND);
-      expect(await screen.findByText(/5 for \$1,875 · you have 5/, {}, FIND)).toBeInTheDocument();
+      expect(await screen.findByText(/5 for \$1,875 · own 5/, {}, FIND)).toBeInTheDocument();
 
       // After a reload of the page the phone is still in the shop, with what it bought
       cleanup();
       render(<App apiUrl={backend.url} />);
-      expect(await screen.findByText(/5 for \$1,875 · you have 5/, {}, FIND)).toBeInTheDocument();
+      expect(await screen.findByText(/5 for \$1,875 · own 5/, {}, FIND)).toBeInTheDocument();
       expect(screen.getByLabelText("Money")).toHaveTextContent("$8,125");
 
       fireEvent.click(screen.getByRole("button", { name: "Ready" }));
@@ -761,9 +765,19 @@ describe("a hotseat game", () => {
   });
 
   describe("online", () => {
-    /** Starts an online game from the front page, as Ann. */
+    /** Starts an online game as Ann: from the front page to the lobby, and from there to the page of a new game. */
     const startOnline = async (visibility: "Anyone" | "Those with the link") => {
       render(<App apiUrl={backend.url} />);
+      expect(screen.getByRole("link", { name: "Play online" }).getAttribute("href")).toBe("#/online");
+      await act(async () => {
+        window.location.hash = "#/online";
+      });
+      await vi.waitFor(() => expect(screen.getByRole("heading", { name: "Online games" })).toBeInTheDocument(), FIND);
+      expect(screen.getByRole("link", { name: "Create a game" }).getAttribute("href")).toBe("#/online/new");
+      await act(async () => {
+        window.location.hash = "#/online/new";
+      });
+      await screen.findByRole("heading", { name: "New online game" }, FIND);
       fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ann" } });
       fireEvent.click(screen.getByRole("button", { name: visibility }));
       // The settings are chosen before the game is created: live turns, no wind and three rounds
@@ -828,7 +842,7 @@ describe("a hotseat game", () => {
       expect((await bob.next("field")).field.tanks).toHaveLength(2);
     });
 
-    it("lists a public game on the front page of others, and not a private one", async () => {
+    it("lists a public game in the lobby of others, and not a private one", async () => {
       const ann = await openClient(backend);
       clients.push(ann);
       ann.send({ type: "create", mode: "online", name: "Ann", public: true, settings: defaultSettings() });
@@ -838,6 +852,7 @@ describe("a hotseat game", () => {
       bea.send({ type: "create", mode: "online", name: "Bea", public: false, settings: defaultSettings() });
       await bea.next("joined");
 
+      window.location.hash = "#/online";
       render(<App apiUrl={backend.url} />);
       const join = await screen.findByRole("link", { name: "Join the game of Ann" }, FIND);
       expect(screen.getByText("1 of 8 players")).toBeInTheDocument();

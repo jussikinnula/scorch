@@ -5,6 +5,8 @@ import { useRoute } from "./hooks/useRoute";
 import Controller from "./views/Controller";
 import Home from "./views/Home";
 import Join from "./views/Join";
+import NewGame from "./views/NewGame";
+import Online from "./views/Online";
 import Play from "./views/Play";
 import Screen from "./views/Screen";
 
@@ -58,6 +60,8 @@ export default function App({ apiUrl = defaultApiUrl(), playerTesting = __PLAYER
       )}
       <main>
         {route.view === "home" && <Home api={api} />}
+        {route.view === "online" && <Online api={api} />}
+        {route.view === "new" && <NewGame api={api} />}
         {route.view === "screen" && (
           <Screen key={route.room} api={api} room={route.room} playerTesting={playerTesting} />
         )}

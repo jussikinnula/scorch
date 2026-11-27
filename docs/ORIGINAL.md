@@ -52,7 +52,7 @@ Points are money: what a player scores in a round is what there is to spend afte
 | Borders Extend  | 0–10000                                                             | 75      | `EDGES_EXTEND`  |
 | Effect of Walls | None, Concrete, Padded, Rubber, Spring, Wraparound, Random, Erratic | None    | `ELASTIC`       |
 
-- Suspend Dirt lets dirt stay in the air. The manual describes the number as the chance, per shot, that the dirt falls, which does not fit the default of 0 (dirt always falls); to be checked.
+- Suspend Dirt lets dirt stay in the air. The manual describes the number as the chance, per shot, that the dirt falls, which does not fit the default of 0 (dirt always falls); to be checked. SCORCH takes the number as the chance, for each explosion, that the dirt stays in the air (`suspendDirt`), without having measured it.
 - Borders Extend is how far outside the screen a projectile is followed before it counts as a miss.
 - Walls: Concrete stops a shot, Padded reflects it with a loss of energy, Rubber reflects it, Spring reflects it with a kick, Wraparound joins the left and the right edge. Random picks one for each round, Erratic for each shot. The colour of the border tells which is in effect.
 
@@ -274,6 +274,7 @@ The manual does not give these, and the simulation needs them. They are measured
 **Before phase 1**
 
 - The damage of an explosion by the distance from the tank, for each weapon of phase 1. The energy before and after a hit can be read; what is missing is a good enough place for the explosion. The dotted trace ends several pixels short, and a circle fitted to the crater is thrown off by the traces drawn over the dirt. Next: traces off, and the circle fitted only to the dirt that went.
+- How the weapons of phase 4 behave. SCORCH has its own values for all of this: how far and how high a Leap Frog leaps, how many bombs a Funky Bomb throws (six; the original throws five to ten) and where, how wide the wedges of the Riot Charge and the Riot Blast are (30 and 40 degrees to each side), and how the nine warheads of a Death's Head spread; how many tunnels the Diggers and the Sandhogs make, how long they are and which way they go, and how strong the charges of the Sandhogs are; and how far a Dirt Charge throws its dirt; how much there is of Liquid Dirt and of Napalm, how runny they are, how hot Napalm is and for how long it burns. The radius of 80 that the manual gives the Funky Bomb is taken as how far its bombs are scattered; each of its explosions is of the size of that of a Missile.
 - Fall damage by height. SCORCH takes a point of energy for each pixel of the original that a tank falls (`FALL_DAMAGE`), as its own value.
 - The points of the Standard scoring: for damage, for a kill, for surviving, and the penalty for hitting oneself. This also decides the default of Cash at Start in PLAN.md.
 - How interest is paid (on what amount, at which moment, how it is rounded).
@@ -286,7 +287,7 @@ The manual does not give these, and the simulation needs them. They are measured
 
 - The Basic and Greedy scoring, and how the inventory is depreciated in Greedy.
 - The price of Auto Defense by the rounds left and the interest rate.
-- How long each shield lasts, and how the shields deflect.
+- How long each shield lasts, and how the shields deflect. SCORCH has the Shield and the Heavy Shield with strengths of its own (100 and 200 of damage), and they only take damage: nothing is deflected yet.
 - The fuel a slope takes, and the steepest slope that can be climbed.
 - The damage of Napalm by the depth of the pool, and of the energy weapons by the batteries used.
 

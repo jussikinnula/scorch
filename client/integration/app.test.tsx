@@ -45,8 +45,27 @@ describe("the app with the backend", () => {
 
   it("shows the view of the address", async () => {
     render(<App apiUrl="" />);
-    expect(screen.getByRole("heading", { name: "Hotseat" })).toBeInTheDocument();
+    // The front page: the two ways to play, and nothing else
+    expect(screen.getByRole("link", { name: "Play online" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start a hotseat game" })).toBeDisabled();
+    expect(screen.queryByLabelText("Your name")).toBeNull();
+
+    // The lobby of the online games, and the page a new one is set up on
+    await act(async () => {
+      window.location.hash = "#/online";
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(screen.getByRole("heading", { name: "Online games" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Show games" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start a hotseat game" })).toBeNull();
+    await act(async () => {
+      window.location.hash = "#/online/new";
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(screen.getByRole("heading", { name: "New online game" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Your name")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Who can join" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Rounds")).toBeInTheDocument();
 
     await act(async () => {
       window.location.hash = "#/play/abc";
@@ -54,7 +73,7 @@ describe("the app with the backend", () => {
     });
     // The view of an online game, which waits for the server here
     expect(document.querySelector(".app--play")).not.toBeNull();
-    expect(screen.queryByRole("heading", { name: "Hotseat" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "New online game" })).toBeNull();
   });
 
   describe("with a backend of another version of the protocol", () => {
