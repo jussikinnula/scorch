@@ -1,7 +1,9 @@
 import React from "react";
 
 import { useApiConnection } from "./hooks/useApiConnection";
+import SoundControls from "./components/SoundControls";
 import { useRoute } from "./hooks/useRoute";
+import { useMusic } from "./sound/sound";
 import Controller from "./views/Controller";
 import Home from "./views/Home";
 import Join from "./views/Join";
@@ -29,6 +31,10 @@ function defaultApiUrl() {
 export default function App({ apiUrl = defaultApiUrl(), playerTesting = __PLAYER_TESTING_MODE__ }: Props) {
   const route = useRoute();
   const api = useApiConnection(apiUrl);
+  // The pages before a game play the title music. A game chooses its own music (Screen and Controller),
+  // and a phone that is the controller of a hotseat game is silent: the big screen plays for everyone.
+  const outside = route.view === "home" || route.view === "online" || route.view === "new";
+  useMusic(outside ? "title" : null, outside || route.view === "join");
 
   return (
     <div className={`app app--${route.view}`}>
@@ -36,6 +42,7 @@ export default function App({ apiUrl = defaultApiUrl(), playerTesting = __PLAYER
         <h1 className="app__title">
           <a href="#/">Scorch</a>
         </h1>
+        {route.view !== "join" && route.view !== "controller" && <SoundControls className="app__sound" />}
         <div
           className="connection"
           role="status"

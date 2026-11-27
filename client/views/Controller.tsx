@@ -18,6 +18,9 @@ import { useBubbles } from "../hooks/useBubbles";
 import { useCountdown } from "../hooks/useCountdown";
 import { useThrottled } from "../hooks/useThrottled";
 import { navigate } from "../routes";
+import { trackOf } from "../sound/music";
+import { useMusic } from "../sound/sound";
+import SoundControls from "../components/SoundControls";
 import { loadPlayerKey, savePlayerKey } from "../session";
 
 interface Props {
@@ -195,6 +198,12 @@ export default function Controller({ api, room, online = false, field }: Props) 
     navigate({ view: "home" });
   };
 
+  const me = state?.players.find((player) => player.id === self);
+  // An online player hears the music of the game, and at its end that of how it went for this player: the
+  // one with the most rounds won, alone or with others, has won. A phone of a hotseat game is silent.
+  const most = Math.max(0, ...(state?.players ?? []).map((player) => player.wins));
+  useMusic(online ? trackOf(state?.phase, me !== undefined && me.wins === most) : null);
+
   if (problem) {
     return (
       <section className="view">
@@ -204,7 +213,6 @@ export default function Controller({ api, room, online = false, field }: Props) 
     );
   }
 
-  const me = state?.players.find((player) => player.id === self);
   if (!state || !me) {
     return (
       <section className="view">
@@ -281,6 +289,7 @@ export default function Controller({ api, room, online = false, field }: Props) 
           <button className="button controller__leave" onClick={leave}>
             Leave the game
           </button>
+          <SoundControls />
         </div>
       </section>
     );
