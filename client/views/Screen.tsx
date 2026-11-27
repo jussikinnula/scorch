@@ -1,23 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 
-import {
-  FieldState,
-  MAX_ARMS_LEVEL,
-  MAX_CASH,
-  MAX_INTEREST,
-  MAX_PLAYERS,
-  MAX_ROUNDS,
-  MAX_WIND,
-  MIN_PLAYERS,
-  MIN_ROUNDS,
-  RoomState,
-  WIND_STEP
-} from "../../shared/protocol";
+import { FieldState, MIN_PLAYERS, RoomState } from "../../shared/protocol";
 import Field, { noAction } from "../components/Field";
 import PlayerList from "../components/PlayerList";
+import LobbySettings from "../components/LobbySettings";
 import QrCode from "../components/QrCode";
 import Wind from "../components/Wind";
-import { formatMoney } from "../money";
 import Standings, { ranked } from "../components/Standings";
 import TestPhoneButton from "../components/TestPhoneButton";
 import { Api, useApiMessages } from "../hooks/useApiConnection";
@@ -26,9 +14,6 @@ import { useBubbles } from "../hooks/useBubbles";
 import { useCountdown } from "../hooks/useCountdown";
 import { toUrl } from "../routes";
 import { loadHostKey, saveHostKey } from "../session";
-
-/** The amounts of money the screen offers for the start of a game. */
-const CASH_STEPS = [0, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000];
 
 interface Props {
   api: Api;
@@ -170,13 +155,6 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
     wanted.current = { ...(wanted.current ?? settings), ...changed };
     api.send({ type: "settings", settings: wanted.current });
   };
-  const setMaxPlayers = (by: number) => change({ maxPlayers: (wanted.current ?? settings).maxPlayers + by });
-  const setRounds = (by: number) => change({ rounds: (wanted.current ?? settings).rounds + by });
-  const setCash = (by: 1 | -1) => {
-    const now = CASH_STEPS.indexOf((wanted.current ?? settings).cash);
-    change({ cash: CASH_STEPS[Math.min(CASH_STEPS.length - 1, Math.max(0, now + by))] });
-  };
-  const setMaxWind = (by: number) => change({ maxWind: (wanted.current ?? settings).maxWind + by });
 
   if (phase === "finished") {
     const [winner, second] = ranked(players);
@@ -291,195 +269,12 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
         <PlayerList players={players} onKick={(player) => api.send({ type: "kick", id: player.id })} />
 
         <div className="screen__controls">
-          <div className="stepper">
-            <span id="max-players">Players at most</span>
-            <button
-              className="button button--small"
-              aria-label="Fewer players"
-              onClick={() => setMaxPlayers(-1)}
-              disabled={settings.maxPlayers <= Math.max(MIN_PLAYERS, players.length)}
-            >
-              −
-            </button>
-            <output aria-labelledby="max-players">{settings.maxPlayers}</output>
-            <button
-              className="button button--small"
-              aria-label="More players"
-              onClick={() => setMaxPlayers(1)}
-              disabled={settings.maxPlayers >= MAX_PLAYERS}
-            >
-              +
-            </button>
-          </div>
-          <div className="stepper" role="group" aria-label="Turns">
-            <span>Turns</span>
-            <button
-              className={`button button--small${settings.turns === "classic" ? " button--chosen" : ""}`}
-              aria-pressed={settings.turns === "classic"}
-              onClick={() => change({ turns: "classic" })}
-            >
-              Classic
-            </button>
-            <button
-              className={`button button--small${settings.turns === "live" ? " button--chosen" : ""}`}
-              aria-pressed={settings.turns === "live"}
-              onClick={() => change({ turns: "live" })}
-            >
-              Live
-            </button>
-          </div>
-          <p className="note">
-            {settings.turns === "classic"
-              ? "Classic: one player at a time aims and fires."
-              : "Live: everyone fires whenever their tank has reloaded."}
-          </p>
-          <div className="stepper">
-            <span id="rounds">Rounds</span>
-            <button
-              className="button button--small"
-              aria-label="Fewer rounds"
-              onClick={() => setRounds(-1)}
-              disabled={settings.rounds <= MIN_ROUNDS}
-            >
-              −
-            </button>
-            <output aria-labelledby="rounds">{settings.rounds}</output>
-            <button
-              className="button button--small"
-              aria-label="More rounds"
-              onClick={() => setRounds(1)}
-              disabled={settings.rounds >= MAX_ROUNDS}
-            >
-              +
-            </button>
-          </div>
-          <div className="stepper">
-            <span id="max-wind">Wind at most</span>
-            <button
-              className="button button--small"
-              aria-label="Less wind"
-              onClick={() => setMaxWind(-WIND_STEP)}
-              disabled={settings.maxWind <= 0}
-            >
-              −
-            </button>
-            <output aria-labelledby="max-wind">{settings.maxWind === 0 ? "None" : settings.maxWind}</output>
-            <button
-              className="button button--small"
-              aria-label="More wind"
-              onClick={() => setMaxWind(WIND_STEP)}
-              disabled={settings.maxWind >= MAX_WIND}
-            >
-              +
-            </button>
-          </div>
-          <div className="stepper">
-            <span id="cash">Cash at start</span>
-            <button
-              className="button button--small"
-              aria-label="Less cash"
-              onClick={() => setCash(-1)}
-              disabled={settings.cash <= 0}
-            >
-              −
-            </button>
-            <output aria-labelledby="cash">{formatMoney(settings.cash)}</output>
-            <button
-              className="button button--small"
-              aria-label="More cash"
-              onClick={() => setCash(1)}
-              disabled={settings.cash >= MAX_CASH}
-            >
-              +
-            </button>
-          </div>
-          <div className="stepper">
-            <span id="interest">Interest</span>
-            <button
-              className="button button--small"
-              aria-label="Less interest"
-              onClick={() => change({ interest: (wanted.current ?? settings).interest - 1 })}
-              disabled={settings.interest <= 0}
-            >
-              −
-            </button>
-            <output aria-labelledby="interest">{settings.interest} %</output>
-            <button
-              className="button button--small"
-              aria-label="More interest"
-              onClick={() => change({ interest: (wanted.current ?? settings).interest + 1 })}
-              disabled={settings.interest >= MAX_INTEREST}
-            >
-              +
-            </button>
-          </div>
-          <div className="stepper">
-            <span id="arms-level">Arms level</span>
-            <button
-              className="button button--small"
-              aria-label="Lower arms level"
-              onClick={() => change({ armsLevel: (wanted.current ?? settings).armsLevel - 1 })}
-              disabled={settings.armsLevel <= 0}
-            >
-              −
-            </button>
-            <output aria-labelledby="arms-level">{settings.armsLevel}</output>
-            <button
-              className="button button--small"
-              aria-label="Higher arms level"
-              onClick={() => change({ armsLevel: (wanted.current ?? settings).armsLevel + 1 })}
-              disabled={settings.armsLevel >= MAX_ARMS_LEVEL}
-            >
-              +
-            </button>
-          </div>
-          <div className="stepper" role="group" aria-label="Walls">
-            <span>Walls</span>
-            {(["none", "rubber", "wraparound"] as const).map((walls) => (
-              <button
-                key={walls}
-                className={`button button--small${settings.walls === walls ? " button--chosen" : ""}`}
-                aria-pressed={settings.walls === walls}
-                onClick={() => change({ walls })}
-              >
-                {{ none: "None", rubber: "Rubber", wraparound: "Wraparound" }[walls]}
-              </button>
-            ))}
-          </div>
-          <div className="stepper" role="group" aria-label="Changing wind">
-            <span>Changing wind</span>
-            <button
-              className={`button button--small${settings.changingWind ? "" : " button--chosen"}`}
-              aria-pressed={!settings.changingWind}
-              onClick={() => change({ changingWind: false })}
-            >
-              Off
-            </button>
-            <button
-              className={`button button--small${settings.changingWind ? " button--chosen" : ""}`}
-              aria-pressed={settings.changingWind}
-              onClick={() => change({ changingWind: true })}
-            >
-              On
-            </button>
-          </div>
-          <div className="stepper" role="group" aria-label="Trace paths">
-            <span>Trace paths</span>
-            <button
-              className={`button button--small${settings.traces ? "" : " button--chosen"}`}
-              aria-pressed={!settings.traces}
-              onClick={() => change({ traces: false })}
-            >
-              Tracers only
-            </button>
-            <button
-              className={`button button--small${settings.traces ? " button--chosen" : ""}`}
-              aria-pressed={settings.traces}
-              onClick={() => change({ traces: true })}
-            >
-              Every shot
-            </button>
-          </div>
+          <LobbySettings
+            settings={settings}
+            players={players.length}
+            current={() => wanted.current ?? settings}
+            change={change}
+          />
           <button
             className="button button--primary"
             onClick={() => api.send({ type: "start" })}
