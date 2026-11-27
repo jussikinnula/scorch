@@ -66,6 +66,12 @@ export const ROLLER_TIME = 6;
 /** How high above the ground a rolling projectile is shown, in pixels. */
 const ROLLER_HEIGHT = 3;
 
+/**
+ * The energy a tank loses for each pixel it falls when the ground goes from under it, in pixels of
+ * the original. Our own value: the original has the damage (Tanks Fall), but it is not measured.
+ */
+export const FALL_DAMAGE = 1;
+
 /** A projectile in the air, or one that rolls along the ground. */
 export interface Shot {
   id: number;
@@ -94,8 +100,9 @@ export type ShotEvent =
   /** The terrain changed. */
   | { event: "terrain"; ops: TerrainOp[] }
   /**
-   * A tank was damaged. Its energy is what is left; 0 means it was destroyed. The amount is how
-   * much it lost, and "by" the id of the player whose shot did it.
+   * A tank was damaged, by an explosion or by falling when the ground went from under it. Its energy
+   * is what is left; 0 means it was destroyed. The amount is how much it lost, and "by" the id of
+   * the player whose shot did it.
    */
   | { event: "damage"; id: number; energy: number; amount: number; by: number };
 
@@ -141,7 +148,8 @@ export function damageTo(tank: TankState, x: number, y: number, radius: number) 
  *   and its own explosion right at the turret hurts it.
  * - A tracer does nothing.
  *
- * After any of them the dirt that has nothing under it falls, and the tanks come down with the ground.
+ * After any of them the dirt that has nothing under it falls, and the tanks come down with the
+ * ground: a fall takes energy from a tank too, by its height.
  */
 function detonate(field: FieldState, weapon: Weapon, at: { x: number; y: number }, by: number, events: ShotEvent[]) {
   if (weapon.kind === "tracer") return;
@@ -150,18 +158,21 @@ function detonate(field: FieldState, weapon: Weapon, at: { x: number; y: number 
   ops.forEach((op) => applyTerrainOp(field.terrain, op, field.height));
   events.push({ event: "explode", ...at, radius: r, weapon: weapon.id });
   for (const tank of field.tanks) {
+    let amount = 0;
     if (weapon.kind !== "dirt" && weapon.kind !== "riot" && tank.energy > 0) {
       // The damage is by where the tank was when the explosion happened, before it came down
-      const amount = Math.min(tank.energy, damageTo(tank, at.x, at.y, r));
-      if (amount > 0) {
-        tank.energy -= amount;
-        // A tank cannot fire harder than its energy allows
-        tank.power = Math.min(tank.power, tank.energy * 10);
-        events.push({ event: "damage", id: tank.id, energy: tank.energy, amount, by });
-      }
+      amount = damageTo(tank, at.x, at.y, r);
     }
-    // A tank falls with the ground under it, but dirt that lands on it does not lift it
-    tank.y = Math.max(tank.y, groundAt(field.terrain, tank.x, field.height));
+    // A tank falls with the ground under it, and the fall hurts it. Dirt that lands on it does not lift it.
+    const fall = Math.max(0, groundAt(field.terrain, tank.x, field.height) - tank.y);
+    tank.y += fall;
+    amount = Math.min(tank.energy, amount + Math.floor((fall / ORIGINAL_SCALE) * FALL_DAMAGE));
+    if (amount > 0) {
+      tank.energy -= amount;
+      // A tank cannot fire harder than its energy allows
+      tank.power = Math.min(tank.power, tank.energy * 10);
+      events.push({ event: "damage", id: tank.id, energy: tank.energy, amount, by });
+    }
   }
   events.push({ event: "terrain", ops });
 }

@@ -317,7 +317,16 @@ describe("a hotseat game", () => {
       // Most of these tests fire without waiting for a turn
       host.send({
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       window.location.hash = `#/join/${token}`;
     });
@@ -508,7 +517,16 @@ describe("a hotseat game", () => {
       clients.push(bob);
       host.send({
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 1, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 1,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       host.send({ type: "start" });
       await screen.findByLabelText("Energy", {}, FIND);
@@ -518,6 +536,10 @@ describe("a hotseat game", () => {
       expect(await screen.findByRole("alert", {}, FIND)).toHaveTextContent(
         "You won the round! That was the last round."
       );
+      // The round is over: the controls of the tank are gone at once, and the standings are shown
+      expect(screen.queryByRole("button", { name: "Fire" })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Power")).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Rounds won by Ann")).toHaveTextContent("1");
       expect(await screen.findByText("You won the game!", {}, { timeout: 8000 })).toBeInTheDocument();
       expect(screen.getByLabelText("Rounds won by Ann")).toHaveTextContent("1");
       expect(screen.queryByRole("button", { name: "Fire" })).not.toBeInTheDocument();
@@ -526,7 +548,16 @@ describe("a hotseat game", () => {
     it("tells when it is the turn of the player in the classic mode, and lets the player fire only then", async () => {
       host.send({
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 10, turns: "classic", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 10,
+          turns: "classic",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       await joinAs("Ann");
       const bob = await openController(backend, token, "Bob");
@@ -639,7 +670,16 @@ describe("a hotseat game", () => {
       const { token } = await host.next("token");
       host.send({
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 10000, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 10000,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       window.location.hash = `#/join/${token}`;
       render(<App apiUrl={backend.url} />);
@@ -694,11 +734,8 @@ describe("a hotseat game", () => {
       ann.send({ type: "ready" });
       expect(await screen.findByText(/1 of 2 ready/, {}, FIND)).toBeInTheDocument();
 
-      // The QR code is shown again: a new player can join between the rounds
-      const cid = await join("Cid");
-      expect(await screen.findByText(/1 of 3 ready/, {}, FIND)).toBeInTheDocument();
-      expect(screen.getByLabelText("Money of Cid")).toHaveTextContent("$10,000");
-      cid.send({ type: "ready" });
+      // Nobody new joins once the game has started: there is no QR code
+      expect(screen.queryByRole("img", { name: "QR code for joining the game" })).toBeNull();
       bob.send({ type: "ready" });
       expect(await screen.findByRole("img", { name: "The playing field" }, FIND)).toBeInTheDocument();
     });

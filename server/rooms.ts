@@ -269,7 +269,8 @@ class Rooms<Member> {
         maxWind: this.maxWind,
         cash: 0,
         interest: DEFAULT_INTEREST,
-        armsLevel: MAX_ARMS_LEVEL
+        armsLevel: MAX_ARMS_LEVEL,
+        traces: false
       },
       players: [],
       screen: member,
@@ -317,8 +318,8 @@ class Rooms<Member> {
   private join(member: Member, token: string, name: string) {
     const room = this.tokens.get(token);
     if (!room) return this.refuse(member, "bad-token", "join");
-    // Nobody new comes in while a round is going on: only before the game, and between two rounds while the shop is open
-    if (room.phase !== "lobby" && room.phase !== "shop") return this.refuse(member, "wrong-phase", "join");
+    // Nobody new comes in once the game has started: not during a round, and not in the shop between two
+    if (room.phase !== "lobby") return this.refuse(member, "wrong-phase", "join");
     if (room.players.length >= room.settings.maxPlayers) return this.refuse(member, "room-full", "join");
     this.disconnect(member);
 
@@ -334,8 +335,7 @@ class Rooms<Member> {
       saidAt: -Infinity,
       reloadedAt: 0,
       wins: 0,
-      // One who comes in the middle of a game starts as everyone did
-      money: room.phase === "shop" ? room.settings.cash : 0,
+      money: 0,
       weapons: {},
       weapon: DEFAULT_WEAPON
     };
@@ -344,7 +344,6 @@ class Rooms<Member> {
     this.sessions.set(member, { room, player });
 
     this.send(member, { type: "joined", room: room.id, id, playerKey: player.key });
-    if (room.phase === "shop") this.sendWeapons(player);
     this.startIfFull(room);
     this.announce(room);
     this.sendField(room);
@@ -394,8 +393,8 @@ class Rooms<Member> {
     if (room.phase !== "lobby") return this.refuse(member, "wrong-phase", "settings");
     if (settings.maxPlayers < room.players.length) return this.refuse(member, "not-allowed", "settings");
 
-    const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel } = settings;
-    room.settings = { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel };
+    const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces } = settings;
+    room.settings = { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces };
     this.startIfFull(room);
     this.announce(room);
     this.sendField(room);

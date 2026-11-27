@@ -33,10 +33,24 @@ function placeTank(field: FieldState, id: number, x: number): TankState {
   return tank;
 }
 
+/** How strong the wind of a round is on average, as a part of the strongest wind allowed. */
+export const MEAN_WIND = 0.15;
+
+/**
+ * The wind of a round. As in the original it is mostly light, and now and then strong: fourteen
+ * games of the original with a Max. Wind of 200 had winds of 0 to 98, 30 on average and half of
+ * them under 27 (docs/ORIGINAL.md, "Wind"). Drawn so that a wind is the rarer the stronger it is,
+ * with that average, to either side as often.
+ */
+export function drawWind(maxWind: number, random: Random) {
+  if (maxWind <= 0) return 0;
+  const strength = Math.min(maxWind, Math.round(-Math.log(1 - random()) * MEAN_WIND * maxWind));
+  return random() < 0.5 ? -strength : strength;
+}
+
 /**
  * A new playing field: a terrain, and the tanks of the players spread more or less evenly across
- * it, in a random order. The wind is drawn from none to the strongest allowed, either way: how the
- * original draws it is not measured.
+ * it, in a random order.
  */
 export function createField(players: number[], random: Random, maxWind = 0): FieldState {
   const field: FieldState = {
@@ -61,7 +75,7 @@ export function createField(players: number[], random: Random, maxWind = 0): Fie
     placeTank(field, id, Math.round(x));
   });
   // Drawn last, so that the wind does not change what the same seed gives for the rest
-  if (maxWind > 0) field.wind = Math.round((random() * 2 - 1) * maxWind);
+  field.wind = drawWind(maxWind, random);
   return field;
 }
 

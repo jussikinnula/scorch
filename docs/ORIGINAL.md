@@ -240,7 +240,8 @@ Measured with shots straight up (angle 90) at powers of 250–500, Trace Paths o
 - The wind is a constant push sideways on everything in the air: an acceleration, like gravity turned on its side. The trace of a shot straight up is a parabola lying on its side.
 - At 640x480 the push is **0.0005 pixels a step squared for each unit of wind**. A wind of 400 pushes sideways as hard as gravity (0.2) pulls down, and the default Max. Wind of 200 half as hard.
 - The game shows the wind in the top right corner as an arrow and a number, e.g. `◀ Wind: 97`.
-- Not measured: how the wind of a round is drawn (SCORCH draws it evenly from none to Max. Wind, either way), how much Changing Wind changes it, and whether the push grows with the resolution as the speed of a shot does (SCORCH scales it with the field, as it does gravity).
+- **The wind of a round is mostly light.** Fourteen new games with the default Max. Wind of 200 had winds of 30, 0, 42, 29, 22, 19, 46, 24, 9, 52, 98, 4, 34 and 8: 30 on average, half of them under 27, the strongest 98, eight to the right and five to the left. So Max. Wind is a ceiling that is rarely near, not the usual strength. SCORCH draws the wind so that it is the rarer the stronger it is, with an average of 0.15 times the strongest allowed (`drawWind` in `shared/sim/field.ts`); the exact rule of the original is not known. (`tools/original/windsample.py`)
+- Not measured: how much Changing Wind changes the wind, and whether the push grows with the resolution as the speed of a shot does (SCORCH scales it with the field, as it does gravity).
 
 ### Damage
 
@@ -271,9 +272,9 @@ The manual does not give these, and the simulation needs them. They are measured
 
 **Before phase 1**
 
-- How the wind of a round is drawn, and how Changing Wind changes it. (How hard the wind pushes is measured: see "Wind".)
+- How Changing Wind changes the wind. (How hard the wind pushes and how strong it usually is are measured: see "Wind".)
 - The damage of an explosion by the distance from the tank, for each weapon of phase 1. The energy before and after a hit can be read; what is missing is a good enough place for the explosion. The dotted trace ends several pixels short, and a circle fitted to the crater is thrown off by the traces drawn over the dirt. Next: traces off, and the circle fitted only to the dirt that went.
-- Fall damage by height.
+- Fall damage by height. SCORCH takes a point of energy for each pixel of the original that a tank falls (`FALL_DAMAGE`), as its own value.
 - The points of the Standard scoring: for damage, for a kill, for surviving, and the penalty for hitting oneself. This also decides the default of Cash at Start in PLAN.md.
 - How interest is paid (on what amount, at which moment, how it is rounded).
 - The selling price of an item by quantity.

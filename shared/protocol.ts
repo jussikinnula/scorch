@@ -20,7 +20,7 @@ export const SOCKET_PATH = "/ws";
  * A client tells its version in the address it connects to (see socketPath), the server in its
  * greeting. The test of this file fails when the messages change and the version does not.
  */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 /** The name of the part of the address of the WebSocket API where a client tells its version. */
 export const PROTOCOL_PARAMETER = "protocol";
@@ -102,7 +102,7 @@ export interface RoomSettings {
   /** How many rounds the game has. */
   rounds: number;
   turns: TurnMode;
-  /** The strongest wind a round can have. The wind of each round is drawn from none to this, either way. */
+  /** The strongest wind a round can have. The wind of each round is drawn from none to this, either way: mostly much less. */
   maxWind: number;
   /** The money each player has at the start of a game (Cash at Start). */
   cash: number;
@@ -110,6 +110,11 @@ export interface RoomSettings {
   interest: number;
   /** The weapons of a higher level than this are not sold (Arms Level, shared/weapons.ts). */
   armsLevel: number;
+  /**
+   * Whether every projectile leaves a trace of its path on the field for the rest of the round, as
+   * a Tracer always does (Trace Paths).
+   */
+  traces: boolean;
 }
 
 export interface PlayerInfo {
@@ -247,7 +252,7 @@ export type ClientMessage =
   | { type: "create"; mode: RoomMode }
   /** A screen returns to its room, e.g. after a reload. Answered with "created". */
   | { type: "host"; room: string; hostKey: string }
-  /** A controller joins the room of a token of the QR code, in the lobby or while the shop is open. Answered with "joined". */
+  /** A controller joins the room of a token of the QR code. Answered with "joined". */
   | { type: "join"; token: string; name: string }
   /** A controller returns to its player, e.g. after the phone was locked. Answered with "joined". */
   | { type: "resume"; room: string; playerKey: string }
@@ -335,7 +340,7 @@ function isText(value: unknown, maxLength: number): value is string {
 
 export function isRoomSettings(value: unknown): value is RoomSettings {
   if (typeof value !== "object" || value === null) return false;
-  const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel } = value as RoomSettings;
+  const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces } = value as RoomSettings;
   return (
     isInteger(maxPlayers, MIN_PLAYERS, MAX_PLAYERS) &&
     isInteger(rounds, MIN_ROUNDS, MAX_ROUNDS) &&
@@ -343,6 +348,7 @@ export function isRoomSettings(value: unknown): value is RoomSettings {
     isInteger(cash, 0, MAX_CASH) &&
     isInteger(interest, 0, MAX_INTEREST) &&
     isInteger(armsLevel, 0, MAX_ARMS_LEVEL) &&
+    typeof traces === "boolean" &&
     (turns === "classic" || turns === "live")
   );
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
-import { FieldState, PlayerInfo, ShotState, SHOTS_INTERVAL } from "../../shared/protocol";
-import { TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "../../shared/sim/field";
+import { FieldState, PlayerInfo, ShotState, SHOTS_INTERVAL, TankState } from "../../shared/protocol";
+import { FIELD_WIDTH, TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "../../shared/sim/field";
 import { findWeapon, WeaponKind } from "../../shared/weapons";
 import { playerColor } from "../colors";
 import { Bubbles } from "../hooks/useBubbles";
@@ -17,9 +17,14 @@ export interface Action {
   /** When the latest ones were told, on the clock of performance.now(). */
   at: number;
   explosions: { x: number; y: number; radius: number; weapon: string; at: number }[];
+  /**
+   * The traces of this round: the places the server told of each projectile that leaves a trace, by
+   * the id of the projectile, with the id of the player who fired it. They stay until the next round.
+   */
+  traces: Map<number, { owner: number; points: { x: number; y: number }[] }>;
 }
 
-export const noAction = (): Action => ({ shots: [], previous: [], at: 0, explosions: [] });
+export const noAction = (): Action => ({ shots: [], previous: [], at: 0, explosions: [], traces: new Map() });
 
 interface Props {
   field: FieldState;
@@ -256,6 +261,15 @@ const EXPLOSION_COLORS: Record<WeaponKind, [string, string, string]> = {
 const TAIL_LENGTH = 14;
 
 /**
+ * Where on the edge of the field a projectile that is outside it is shown: straight below one that
+ * is above the field, and level with one that is past a side. Null for one that is on the field.
+ */
+export function atEdge(shot: { x: number; y: number }) {
+  if (shot.x >= 0 && shot.x <= FIELD_WIDTH && shot.y >= 0) return null;
+  return { x: Math.min(FIELD_WIDTH - 2, Math.max(2, shot.x)), y: Math.max(2, shot.y) };
+}
+
+/**
  * Where the projectiles are right now. The server tells their places a few times a second; between
  * two tellings a projectile is drawn on the way from the earlier place to the later one.
  */
@@ -273,10 +287,24 @@ function drawAction(
   tails: Map<number, { x: number; y: number }[]>,
   now: number
 ) {
+  // A trace is a row of dots in the colour of the one who fired, as in the original
+  for (const trace of action.traces.values()) {
+    context.fillStyle = playerColor(trace.owner);
+    for (const point of trace.points) context.fillRect(point.x - 1, point.y - 1, 2, 2);
+  }
+
   const shots = placeShots(action, now);
   for (const id of tails.keys()) if (!shots.some((shot) => shot.id === id)) tails.delete(id);
 
   for (const shot of shots) {
+    const edge = atEdge(shot);
+    if (edge) {
+      // Outside the field, above it or past a side: a white dot on the edge shows where it is going, as in the original
+      tails.delete(shot.id);
+      context.fillStyle = "#fff";
+      context.fillRect(edge.x - 2, edge.y - 2, 4, 4);
+      continue;
+    }
     const tail = tails.get(shot.id) ?? [];
     tail.push({ x: shot.x, y: shot.y });
     if (tail.length > TAIL_LENGTH) tail.shift();
@@ -317,6 +345,35 @@ function drawAction(
   }
 }
 
+/** How fast a tank is drawn to fall when the ground has gone from under it, in pixels a second squared. */
+const FALL_GRAVITY = 900;
+
+/**
+ * Where the tanks are drawn. The server moves a tank whose ground went straight to where it lands;
+ * here it is shown falling there. A tank that is anywhere else than above its place (a new round)
+ * is drawn where it is.
+ *
+ * @param shown Where each tank was drawn the last time, by its id. It is brought up to date.
+ * @param seconds The time since the last drawing.
+ */
+export function fallTanks(
+  tanks: TankState[],
+  shown: Map<number, { x: number; y: number; speed: number }>,
+  seconds: number
+): TankState[] {
+  return tanks.map((tank) => {
+    const was = shown.get(tank.id);
+    if (!was || was.x !== tank.x || was.y >= tank.y) {
+      shown.set(tank.id, { x: tank.x, y: tank.y, speed: 0 });
+      return tank;
+    }
+    const speed = was.speed + FALL_GRAVITY * seconds;
+    const y = Math.min(tank.y, was.y + speed * seconds);
+    shown.set(tank.id, { x: tank.x, y, speed: y === tank.y ? 0 : speed });
+    return { ...tank, y };
+  });
+}
+
 /** The size of the window in pixels of the device, kept up to date. */
 function useWindowSize() {
   const measure = () => {
@@ -339,6 +396,8 @@ export default function Field({ field, players, bubbles, action, turn }: Props) 
   const canvas = useRef<HTMLCanvasElement>(null);
   const background = useRef<{ of: number[][]; width: number; height: number; picture: HTMLCanvasElement } | null>(null);
   const tails = useRef(new Map<number, { x: number; y: number }[]>());
+  const shown = useRef(new Map<number, { x: number; y: number; speed: number }>());
+  const drawnAt = useRef(performance.now());
   const { width, height } = useWindowSize();
   // What to draw is kept where the drawing of each frame finds the latest of it
   const scene = useRef({ field, players, bubbles, action, turn, width, height });
@@ -368,9 +427,13 @@ export default function Field({ field, players, bubbles, action, turn }: Props) 
       context.drawImage(background.current!.picture, 0, 0);
       context.setTransform(layout.scale, 0, 0, layout.scale, layout.left, layout.top);
       const now = performance.now();
-      drawTanks(context, field, players, turn, now);
+      // The tanks as they are shown: one whose ground went is on its way down
+      const seconds = Math.min(0.1, (now - drawnAt.current) / 1000);
+      drawnAt.current = now;
+      const seen = { ...field, tanks: fallTanks(field.tanks, shown.current, seconds) };
+      drawTanks(context, seen, players, turn, now);
       if (action) drawAction(context, action, tails.current, now);
-      if (bubbles) drawBubbles(context, field, bubbles);
+      if (bubbles) drawBubbles(context, seen, bubbles);
       frame = window.requestAnimationFrame(draw);
     };
     draw();
