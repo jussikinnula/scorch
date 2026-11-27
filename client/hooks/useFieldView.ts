@@ -2,8 +2,11 @@ import { useRef, useState } from "react";
 
 import { FieldState, RoomState } from "../../shared/protocol";
 import { applyTerrainOp } from "../../shared/sim/terrain";
+import { TANK_HEIGHT } from "../../shared/sim/field";
 import { findWeapon } from "../../shared/weapons";
 import { noAction } from "../components/Field";
+import { effects } from "../sound/sound";
+import { explosionSound, landed, launched } from "../sound/events";
 import { Api, useApiMessages } from "./useApiConnection";
 import { useBubbles } from "./useBubbles";
 
@@ -24,6 +27,10 @@ export function useFieldView(api: Api, room: string) {
   // Kept where the next message finds them, as the messages can come faster than the view is redrawn
   const tracesNow = useRef(false);
   const roundNow = useRef(0);
+  // For the sounds: the field as it is now, and how many things have gone off since the projectiles were last told
+  const fieldNow = useRef<FieldState | null>(null);
+  fieldNow.current = field;
+  const wentOff = useRef(0);
 
   useApiMessages(api, (message) => {
     if (message.type === "room" && message.state.room === room) {
@@ -55,6 +62,12 @@ export function useFieldView(api: Api, room: string) {
         trace.points.push({ x: shot.x, y: shot.y });
         action.current.traces.set(shot.id, trace);
       }
+      // A shot that appears at a tank was fired from it; one that is gone without going off landed quietly
+      const before = action.current.shots;
+      const tanks = (fieldNow.current?.tanks ?? []).map((tank) => ({ x: tank.x, y: tank.y - TANK_HEIGHT }));
+      if (launched(before, message.shots, tanks) > 0) effects.fire();
+      if (fieldNow.current && landed(before, message.shots, fieldNow.current) > wentOff.current) effects.click();
+      wentOff.current = 0;
       action.current.previous = action.current.shots;
       action.current.shots = message.shots;
       action.current.at = performance.now();
@@ -62,11 +75,17 @@ export function useFieldView(api: Api, room: string) {
     } else if (message.type === "burn") {
       // What still spreads is told again and again: the latest telling is all of it
       const { id, x, depths, weapon } = message;
+      wentOff.current++;
       const burns = action.current.burns.filter((burn) => burn.id !== id);
       action.current.burns = [...burns, { id, x, depths, weapon, at: performance.now() }];
     } else if (message.type === "explode") {
       const { x, y, radius, weapon, part } = message;
       action.current.explosions.push({ x, y, radius, weapon, part, at: performance.now() });
+      wentOff.current++;
+      // A rumble for what explodes, by its size; a click for what only digs, fills or flashes
+      const sound = explosionSound(weapon, radius);
+      if (sound === "explosion") effects.explode(radius);
+      else effects.click();
     } else if (message.type === "terrain") {
       const { changes, tanks } = message;
       setField((current) => {

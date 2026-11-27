@@ -1705,3 +1705,28 @@ input::placeholder {
     padding-left: 0.5rem;
   }
 }
+
+/* The switches of the music and the effects: in the corner of every page, and over the field of a game */
+.sound {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.app__sound {
+  margin-left: auto;
+  margin-right: 1rem;
+}
+
+.game__sound {
+  position: fixed;
+  z-index: 11;
+  bottom: 1rem;
+  left: 1rem;
+  opacity: 0.85;
+}
+
+.online__rest .sound {
+  margin-left: auto;
+  align-self: center;
+}

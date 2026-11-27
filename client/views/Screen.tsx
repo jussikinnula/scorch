@@ -11,6 +11,9 @@ import TestPhoneButton from "../components/TestPhoneButton";
 import { Api, useApiMessages } from "../hooks/useApiConnection";
 import { useCountdown } from "../hooks/useCountdown";
 import { useFieldView } from "../hooks/useFieldView";
+import { trackOf } from "../sound/music";
+import { useMusic } from "../sound/sound";
+import SoundControls from "../components/SoundControls";
 import { toUrl } from "../routes";
 import { loadHostKey, saveHostKey } from "../session";
 
@@ -33,6 +36,8 @@ const PROBLEMS: Record<Problem, string> = {
 /** The big screen of a hotseat game: the lobby with the QR code, and later the playing field. */
 export default function Screen({ api, room, playerTesting = false }: Props) {
   const { state, field, bubbles, action, flying, result } = useFieldView(api, room);
+  // The big screen plays the music of the game for everyone in the room
+  useMusic(trackOf(state?.phase));
   const [token, setToken] = useState<string | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
   // After a problem the screen does not ask for the room again, e.g. to not fight another tab over it
@@ -164,6 +169,7 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
           })}
         </ul>
         <Wind wind={state.wind} className="game__wind" />
+        <SoundControls className="game__sound" />
         {state.turn && !result && (
           <p className="game__turn" role="status" aria-label="Turn">
             {players.find((player) => player.id === state.turn?.player)?.name}

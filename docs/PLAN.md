@@ -164,6 +164,10 @@ The original makes its sounds with the PC speaker: beeps, and optionally a tone 
 
 The sounds are played on the device that shows the playing field (the TV in a hotseat game), from the events the server sends (see PROTOCOL.md). A browser lets a page make sound only after the user has touched it, so the sound is unlocked by the click that creates or starts the game. Sounds come last, in phase 5.
 
+**Done so far.** The music (`client/assets/music`): the title music on the pages before a game and in the lobby, the game pieces one after another during a round, the market music in the shop, and at the end of a game the victory music on the big screen of a hotseat game, and the victory or the defeat music for each player of an online game by whether it won. A piece that changes fades out to silence before the next one fades in. The music is off until it is turned on, and the effects are on; each has a switch on every page and over the playing field, and the choices are remembered on the device. The phones of a hotseat game are silent. The first effects are made in the browser (`client/sound/effects.ts`): one general sound for a shot, one for an explosion, deeper and longer the larger it is, and a click for what lands or goes off without exploding.
+
+**To do:** better effects, recorded or made with more care, that vary by weapon as described above, and the other sounds of a round.
+
 ### 3.8 What is left out
 
 Computer players, the scanned mountains of the original (the `.MTN` files are under copyright), everything about registering, the hardware settings and saving a game to a file.
