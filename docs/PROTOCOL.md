@@ -96,7 +96,7 @@ When the controller is opened again, or its connection returns, it sends `resume
 
 **A device is one player.** The server knows a device by its player key, and what the player chose before the game (the name, later the tank and the equipment) is kept on the server with the player, not on the device. A device that opens the address of the QR code first asks whether it already is a player of that room: `rejoin { token, playerKey }`, with the key it got last. If it is, the answer is `joined` for the player it is, and the device is not asked for a name; if not, the error `no-session`, and the device shows the form for joining as a new player. So the same device cannot be in a game twice or under another name. A player who wants to change something leaves the game and joins again.
 
-**Nobody new joins during the game.** A `join` after the game has started is refused with `wrong-phase`, and the screen does not show the QR code then. Those who are players return with `resume` or `rejoin` at any time. The front page of the site offers a device a way back to the game it was last in, for when its page was closed.
+**Nobody new joins during a round.** A `join` while a round is played is refused with `wrong-phase`, and the screen does not show the QR code then. Between two rounds, while the shop is open, the screen shows the QR code again and a new player can join if the room is not full: it gets the cash of the start and no wins, and has a tank from the next round on. Those who are players return with `resume` or `rejoin` at any time. The front page of the site offers a device a way back to the game it was last in, for when its page was closed.
 
 If a second connection takes over a screen or a player with the right key, the first one gets the error `replaced` and is closed. That is what happens when the same phone opens the page in two tabs.
 
@@ -104,13 +104,13 @@ If a second connection takes over a screen or a player with the right key, the f
 
 The state of the room (`RoomState`) is sent to everyone in the room whenever it changes: someone joins, leaves, loses or regains the connection, the settings change, or the phase changes.
 
-| From       | Message                 | When          | What happens                                                                                                   |
-| ---------- | ----------------------- | ------------- | -------------------------------------------------------------------------------------------------------------- |
-| Screen     | `lobby`                 | When finished | Back to the lobby for a new game.                                                                              |
-| Screen     | `settings { settings }` | In the lobby  | Changes the maximum number of players (2–10, 8 by default). It cannot go below the number already in the room. |
-| Screen     | `kick { id }`           | Any time      | Removes the player; its key stops working. The controller of the player gets the error `no-session`.           |
-| Screen     | `start`                 | In the lobby  | Starts the game, if there are at least two players.                                                            |
-| Controller | `leave`                 | Any time      | The player leaves for good. There is no answer.                                                                |
+| From       | Message                 | When          | What happens                                                                                                                                                                                                           |
+| ---------- | ----------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Screen     | `lobby`                 | When finished | Back to the lobby for a new game.                                                                                                                                                                                      |
+| Screen     | `settings { settings }` | In the lobby  | Changes the settings: the maximum number of players (2–10, 8 by default; not below the number already in the room), the rounds, the turns, the strongest wind, the cash at the start, the interest and the arms level. |
+| Screen     | `kick { id }`           | Any time      | Removes the player; its key stops working. The controller of the player gets the error `no-session`.                                                                                                                   |
+| Screen     | `start`                 | In the lobby  | Starts the game, if there are at least two players.                                                                                                                                                                    |
+| Controller | `leave`                 | Any time      | The player leaves for good. There is no answer.                                                                                                                                                                        |
 
 The game also starts by itself when the room becomes full.
 
@@ -121,7 +121,7 @@ Joining is open again between the rounds, once the game has rounds.
 - **A controller**: the player stays in the room with `connected: false`, and the tank stays on the field. `resume` brings the player back. The others see the player as disconnected, not as gone: only the screen removing the player, or the player leaving, takes the player out of the game.
 - **The screen**: the room stays, with `screen: false`. The controllers show that the screen is away. `host` brings it back. A room without a screen is removed after five minutes, and with it the keys of its players. The controllers that are connected get the error `no-room`.
 
-**A device that returns is told everything it needs.** After `host` or `resume` the server sends the whole of what that role shows, not only what has changed since: a device that returns may have missed anything, or may be a page that was just reloaded and knows nothing. Today that is the state of the room, for the screen also the join token and the playing field as it is now with the aims of all the tanks, and for a controller the aim of its own tank, how long it still reloads and its energy. Each later feature adds its part to this: the playing field for those who show it, and for a player its own aim, energy, money, inventory, turn and reload. Every such addition gets a test that returns in the middle of it (see PLAN.md, Testing).
+**A device that returns is told everything it needs.** After `host` or `resume` the server sends the whole of what that role shows, not only what has changed since: a device that returns may have missed anything, or may be a page that was just reloaded and knows nothing. Today that is the state of the room, for the screen also the join token and the playing field as it is now with the aims of all the tanks, and for a controller the aim of its own tank, how long it still reloads, its energy and its weapons. Each later feature adds its part to this: the playing field for those who show it, and for a player its own aim, energy, money, inventory, turn and reload. Every such addition gets a test that returns in the middle of it (see PLAN.md, Testing).
 
 ## Playing: the first slice
 
@@ -161,19 +161,70 @@ This is the first input that has to feel immediate, so it is the test of the who
 ```
 controller                          server                          screen
   │ ── fire ─────────────────────────▶ │
+  │ ◀── weapons { selected, counts } ─ │
   │ ◀── reload { time: 3000 } ──────── │ ── shots { shots } ──────────▶ │   every 50 ms
-  │                                    │ ── explode { x, y, radius } ─▶ │
+  │                                    │ ── explode { x, y, radius, weapon } ▶ │
   │                                    │ ── terrain { changes, tanks }▶ │
   │                                    │ ── shots { shots: [] } ──────▶ │
 ```
 
-- `fire` has nothing in it: the tank fires with the aim the server has. The controller sends an aim it has not sent yet just before the `fire`.
-- **Reloading.** After a shot the tank reloads (`RELOAD_TIME`, three seconds for the only weapon so far). The server tells the player how long with `reload { time }`, and refuses a `fire` during it with the error `reloading`. Turning the turret works meanwhile. This is the live mode; the classic mode has turns instead (see below).
+- `fire` has nothing in it: the tank fires with the aim and the weapon the server has. The controller sends an aim it has not sent yet just before the `fire`.
+- **Reloading.** After a shot the tank reloads, the longer the bigger the weapon was (`reload` in `shared/weapons.ts`: three seconds for a Baby Missile, twenty for a Nuke). The server tells the player how long with `reload { time }`, and refuses a `fire` during it with the error `reloading`. Turning the turret works meanwhile. This is the live mode; the classic mode has turns instead (see below).
 - **The flight is calculated on the server** (`shared/sim/shots.ts`), 60 steps a second. Every 50 ms (`SHOTS_INTERVAL`) the screen is sent the places of all the projectiles in the air, as whole pixels of the field. A projectile can be outside the field, above it or past its sides. When the last one is gone, an empty list is sent once, and then nothing until the next shot.
 - **The screen draws a projectile between two places it was told**, on the way from the earlier to the later one, so the flight is smooth although the places come twenty times a second. A projectile that is not in a list any more is gone.
-- **An explosion** is told once, when it happens: where and how large.
-- **A change to the terrain** is told as what was done to it, not as a new terrain: `carve` (the dirt inside a circle is destroyed) and `settle` (the dirt that has nothing under it falls). The screen makes the same changes to its own copy with the code of `shared/sim/terrain.ts`, which uses only whole numbers and gives the same result everywhere. With the changes come the tanks as they are after them, because a tank comes down with the ground under it.
+- **An explosion** is told once, when it happens: where, how large, and of which weapon. The weapon picks the look (fire, a ball of dirt, the flash of a riot bomb) and later the sound. Each projectile in `shots` also has the id of its weapon.
+- **A change to the terrain** is told as what was done to it, not as a new terrain: `carve` (the dirt inside a circle is destroyed), `fill` (a ball of dirt is made) and `settle` (the dirt that has nothing under it falls). The screen makes the same changes to its own copy with the code of `shared/sim/terrain.ts`, which uses only whole numbers and gives the same result everywhere. With the changes come the tanks as they are after them, because a tank comes down with the ground under it.
 - A screen that returns gets the whole `field` as it is now, craters and all, and the projectiles that are in the air in the next `shots`. A controller that returns gets a `reload` with the time that is left.
+
+### Wind
+
+- The host sets the strongest wind of the room in the lobby: `settings.maxWind`, 0–500, 200 by default as in the original. 0 is no wind.
+- Each round has a wind of its own, drawn from none to the strongest allowed, either way. It is a whole number with a sign: positive blows to the right.
+- The wind is in the state of the room (`wind`), because everyone aims by it: the screen shows it in a corner and a phone above the energy of the tank. It is also in the `field`. Outside a round it is 0.
+- The wind pushes everything in the air sideways, as measured from the original (`WIND_PER_UNIT` in `shared/sim/shots.ts`): a wind of 400 pushes as hard as gravity pulls.
+
+### Weapons
+
+```
+controller                          server
+  │ ◀── weapons { selected, counts } ─ │   at the start of a round, after a shot, on return
+  │ ── weapon { weapon: "missile" } ─▶ │
+  │ ◀── weapons { selected, counts } ─ │
+```
+
+- The weapons are data that both sides have: `shared/weapons.ts`. The messages carry only their ids.
+- **What a player has** is told only to that player: `weapons { selected, counts }`. `counts` has how many the player has of each weapon, by its id. A weapon there is no end of (the Baby Missile) is not in it, nor one the player has none of.
+- **Choosing**: `weapon { weapon }` sets what the tank fires next. It is always answered with `weapons`; a weapon that does not exist or that the player has none of is also refused with the error `no-weapon`. A weapon can be chosen at any time during a game, also while the tank reloads and on someone else's turn.
+- **Firing** takes one from the count. When it was the last one, the tank goes back to the Baby Missile.
+- A player starts a game with no weapons but the Baby Missile. The rest are bought in the shop (see below). What is left is kept from round to round.
+- What the weapons do (`shared/sim/shots.ts`):
+  - Baby Missile, Missile, Baby Nuke, Nuke: an explosion of the radius of the weapon, which destroys dirt and damages tanks.
+  - MIRV: at the top of its flight it becomes five warheads that spread sideways, each of which explodes like a Missile. One that hits something on its way up explodes as a single warhead.
+  - Dirt Clod, Dirt Ball, Ton of Dirt: a ball of dirt (`fill`), which then falls. A tank under it is buried but not harmed; when it fires, its shot goes off at the turret and hurts it.
+  - Riot Bomb, Heavy Riot Bomb: destroys dirt, does not damage tanks.
+  - Tracer: flies and does nothing.
+  - Baby Roller, Roller, Heavy Roller: where it lands it starts to roll like a ball, faster downhill and slower uphill, and explodes when it reaches a tank or stops in a valley (or after six seconds). One that comes down on a tank explodes at once. A rolling projectile is in `shots` like one in the air.
+
+### Money and the shop
+
+```
+controller                          server                          everyone
+  │                                    │ ── room { phase: "shop", shop: { time, ready } } ─▶
+  │ ◀── weapons { selected, counts } ─ │
+  │ ── buy { weapon: "missile" } ────▶ │
+  │ ◀── weapons { selected, counts } ─ │ ── room { players[].money } ─▶
+  │ ── ready ────────────────────────▶ │ ── room { shop: { ready } } ──▶
+  │                                    │ ── room { phase: "playing" } ─▶   when everyone is ready
+```
+
+- **Money** is in the state of the room (`players[].money`), for everyone to see, as in the rankings of the original. It can be below zero. A game starts with `settings.cash` for each player (Cash at Start, 0 by default as in the original, up to 1,000,000).
+- **What a round pays** (`shared/economy.ts`): 5,000 to the player whose tank is the last one left and 15 off for each point of energy a player takes from its own tank, both as measured from the original; and our own values until they are measured too: 20 for each point of energy taken from the tank of another, and 2,000 more for destroying it. The state of the room is sent when a shot pays.
+- **Interest**: between two rounds, money that was not spent grows by `settings.interest` per cent (Interest Rate, 0–30, 5 by default as in the original). A debt does not grow.
+- **Arms level**: `settings.armsLevel` (0–4, 4 by default as in the original). The shop sells only the weapons of that level or lower; a `buy` of another is refused with `no-weapon`.
+- **The shop** opens before a round when at least one player can afford something: before the first round only if the game starts with cash. The phase of the room is `shop`, and `shop` in its state tells how long the shop is still open (`time`, at most 60 seconds) and who are ready.
+- `buy { weapon }` buys one bundle of a weapon at its price (`shared/weapons.ts`). It is answered with `weapons`, and the new money comes in the state of the room. It is refused with `no-weapon` (no such weapon, or one that is not sold: the Baby Missile), `no-money`, or `too-many` (nobody can have more than 99 of a weapon).
+- `ready` tells that the player is done. The round starts when every player who is connected is ready, or when the time is out. A player who is not connected is not waited for.
+- A device that returns to the shop gets the state of the room and its `weapons`.
 
 ### Turns: classic and live
 
@@ -198,7 +249,7 @@ A device that returns gets the turn with the state of the room, with the time th
 - A tank with no energy is **destroyed**: it stays on the field as a wreck, a projectile flies through it, and its `aim` and `fire` are refused with the error `destroyed`. Its player can still use the speech bubbles.
 - **A round is over** when at most one tank is left and nothing is in the air. Everyone in the room is told `roundOver { round, winner }`, where the winner is the id of the player whose tank is left, or null if none is. Firing is refused with `wrong-phase` while the result is shown.
 - The winner of a round gets a **win**. The wins of each player are in the state of the room (`players[].wins`), which is sent again when a round ends.
-- Five seconds later (`ROUND_PAUSE`) **the next round starts**: a new terrain, every tank whole again. The screen gets a new `field`, the players their `aim`, `reload` and `energy`, and everyone the state of the room, whose `round` is the number of the round from 1.
+- Five seconds later (`ROUND_PAUSE`) the shop opens if anyone can buy anything (see below), and then **the next round starts**: a new terrain, every tank whole again. The screen gets a new `field`, the players their `aim`, `reload` and `energy`, and everyone the state of the room, whose `round` is the number of the round from 1.
 - **A game has a number of rounds**, which the screen sets in the lobby with the other settings (`settings.rounds`, 1–1000, 10 by default, as in the original). After the last round there is no new round: the phase of the room becomes `finished`, and the final standings are shown. Nothing can be done on the field then.
 - From a finished game the screen goes back to the lobby with `lobby`: the wins are cleared, the QR code is shown and new players can join, and `start` starts a new game.
 
@@ -233,8 +284,11 @@ When the server refuses something, it answers `error { code, re }`, where `re` i
 | `room-full`     | The room has its maximum number of players.                                                          |
 | `bad-name`      | The name was refused (the word filter, later).                                                       |
 | `not-allowed`   | The client is not in a room, or its role may not do this.                                            |
-| `wrong-phase`   | The room is not in a phase where this can be done, e.g. joining a game that has started.             |
+| `wrong-phase`   | The room is not in a phase where this can be done, e.g. joining while a round is played.             |
 | `reloading`     | The tank is still reloading after its last shot.                                                     |
+| `no-weapon`     | There is no such weapon, or the player has none of it.                                               |
+| `no-money`      | In the shop: the player does not have the money for it.                                              |
+| `too-many`      | In the shop: the player would have more than 99 of the weapon.                                       |
 | `destroyed`     | The tank of the player has been destroyed.                                                           |
 | `not-your-turn` | In the classic mode: it is not the turn of the player, or the player has already fired on this turn. |
 | `rate-limited`  | Too many messages.                                                                                   |
@@ -246,18 +300,17 @@ A connection that sends more than 40 messages within a second gets `rate-limited
 
 Sketched only, to check that the design above has room for them. They are designed properly when their phase comes.
 
-- **The round** (phase 1): `weapon { id }` from a player. Each player gets its own energy, money and inventory in a message of its own, which the controller needs but the others must not see.
-- **Wind** (phase 1): a number with a sign, in the message that starts a round and again whenever it changes (Changing Wind, the live mode). It goes to everyone, the controllers too, because the player aims by it.
-- **The shop** (phase 1): `buy { item }`, `sell { item, quantity }`, `ready`. The inventory and the prices go only to the player.
+- **Changing Wind** (later): the wind changes during a round. The new wind comes in the state of the room, as now.
+- **The shop, later**: selling (`sell { weapon, quantity }`) and Free Market.
 - **The live mode** (phase 2): the same `aim` and `fire`; the server answers a `fire` during a reload with an error and tells each player when its reload ends.
 - **Online** (phase 3): `create { mode: "online", public }`, a list of the public rooms, and `join` with the token of a private link, which does not change. The role is "player": it gets both the messages of a controller and those of the field.
 
 ### More kinds of projectiles and changes
 
-Firing above has one weapon. The same messages carry the rest of the arsenal, because what a weapon does is code in `shared/sim`, not a message:
+The same messages carry the rest of the arsenal, because what a weapon does is code in `shared/sim`, not a message:
 
-- A projectile gets a kind (which picks its look and sound) and a state: flying, rolling along the ground (the Rollers), burrowing (the Diggers and the Sandhogs, tunnelling). A MIRV that splits is one projectile that goes and five that appear.
-- More changes to the terrain: add a circle of dirt (Dirt Clod, Dirt Ball, Ton of Dirt), carve or add a wedge (Riot Charge, Dirt Charge). Weapons that change the terrain bit by bit (Liquid Dirt, Napalm, the Diggers) send a run of small changes.
+- A projectile gets more states: burrowing (the Diggers and the Sandhogs, tunnelling).
+- More changes to the terrain: carve or add a wedge (Riot Charge, Dirt Charge). Weapons that change the terrain bit by bit (Liquid Dirt, Napalm, the Diggers) send a run of small changes.
 - More events: a tank that starts to fall, damage from the fall. The effects and the sounds are played from the events.
 - A checksum of the terrain now and then, as a safeguard: a screen whose terrain differs asks for the whole `field` again.
 - Wind, air viscosity and the walls only affect the calculation on the server.

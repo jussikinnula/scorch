@@ -5,7 +5,8 @@
  * messages are used.
  *
  * Everything here is implemented: the rooms (creating one, joining it with the QR code, its lobby),
- * the playing field, turning the turret ("aim"), firing ("fire") and the speech bubbles ("say").
+ * the playing field, turning the turret ("aim"), choosing a weapon ("weapon"), firing ("fire") and
+ * the speech bubbles ("say").
  */
 
 /** The path of the WebSocket API on the server. */
@@ -19,7 +20,7 @@ export const SOCKET_PATH = "/ws";
  * A client tells its version in the address it connects to (see socketPath), the server in its
  * greeting. The test of this file fails when the messages change and the version does not.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 10;
 
 /** The name of the part of the address of the WebSocket API where a client tells its version. */
 export const PROTOCOL_PARAMETER = "protocol";
@@ -38,6 +39,18 @@ export const DEFAULT_MAX_PLAYERS = 8;
 export const MIN_ROUNDS = 1;
 export const MAX_ROUNDS = 1000;
 export const DEFAULT_ROUNDS = 10;
+/** The strongest wind a room can be set to, and that of a new room: as in the original. 0 is no wind. */
+export const MAX_WIND = 500;
+export const DEFAULT_MAX_WIND = 200;
+/** The most money a room can give its players at the start of a game. A new room gives none, as the original. */
+export const MAX_CASH = 1000000;
+/** The interest that unspent money earns between two rounds, in per cent: the range and the default of the original. */
+export const MAX_INTEREST = 30;
+export const DEFAULT_INTEREST = 5;
+/** The arms level of a room: the weapons of a higher level are not sold. The highest, which sells everything, is the default of the original. */
+export const MAX_ARMS_LEVEL = 4;
+/** The steps in which the screen changes the strongest wind. */
+export const WIND_STEP = 50;
 export const MAX_NAME_LENGTH = 16;
 /** The longest text of a speech bubble, in characters. */
 export const MAX_SAY_LENGTH = 60;
@@ -53,8 +66,6 @@ export const JOIN_TOKEN_PERIOD = 30000;
 export const AIM_INTERVAL = 50;
 /** The shortest time between the speech bubbles of a player, in milliseconds. */
 export const SAY_INTERVAL = 2000;
-/** How long a tank reloads after firing, in milliseconds. So far there is one weapon, the Baby Missile. */
-export const RELOAD_TIME = 3000;
 /** How long a player has for a turn in the classic mode, in milliseconds. After it the turn is skipped. */
 export const TURN_TIME = 45000;
 /** The energy of a new tank. A tank is destroyed when its energy is 0. */
@@ -73,10 +84,10 @@ const ID = /^[A-Za-z0-9_-]{1,64}$/;
 export type RoomMode = "hotseat";
 
 /**
- * Where a room is in a game: in the lobby before it, playing its rounds, or finished, with the
- * final results shown. The shop comes later.
+ * Where a room is in a game: in the lobby before it, playing a round, in the shop between two
+ * rounds, or finished, with the final results shown.
  */
-export type RoomPhase = "lobby" | "playing" | "finished";
+export type RoomPhase = "lobby" | "playing" | "shop" | "finished";
 
 /**
  * How the turns of a round go. Classic: one player at a time aims and fires, and the turn passes
@@ -91,6 +102,14 @@ export interface RoomSettings {
   /** How many rounds the game has. */
   rounds: number;
   turns: TurnMode;
+  /** The strongest wind a round can have. The wind of each round is drawn from none to this, either way. */
+  maxWind: number;
+  /** The money each player has at the start of a game (Cash at Start). */
+  cash: number;
+  /** The interest that money which is not spent earns between two rounds, in per cent (Interest Rate). */
+  interest: number;
+  /** The weapons of a higher level than this are not sold (Arms Level, shared/weapons.ts). */
+  armsLevel: number;
 }
 
 export interface PlayerInfo {
@@ -101,6 +120,8 @@ export interface PlayerInfo {
   connected: boolean;
   /** How many rounds of the game the player has won: its tank was the last one left. */
   wins: number;
+  /** The money of the player in dollars. It can be below zero. Everyone sees it, as in the rankings of the original. */
+  money: number;
 }
 
 /** Everything about a room that everyone in it may know. There are no keys or tokens in it. */
@@ -119,6 +140,16 @@ export interface RoomState {
    * long the player still has to fire, in milliseconds (0 once the shot has been fired). Otherwise null.
    */
   turn: { player: number; time: number } | null;
+  /**
+   * The wind of the round that is being played: how hard it blows, with a sign for the way. Positive
+   * blows to the right. It pushes everything in the air sideways (shared/sim/shots.ts). 0 outside a round.
+   */
+  wind: number;
+  /**
+   * While the shop is open: how long it still is, in milliseconds, and the ids of the players who
+   * have said they are ready. Otherwise null.
+   */
+  shop: { time: number; ready: number[] } | null;
 }
 
 /** A tank on the playing field. */
@@ -140,6 +171,8 @@ export interface ShotState {
   id: number;
   /** The id of the player who fired it. */
   owner: number;
+  /** The id of the weapon (shared/weapons.ts), which tells what it looks like. */
+  weapon: string;
   /** In pixels of the playing field. A projectile can be outside the field: above it, or past its sides. */
   x: number;
   y: number;
@@ -152,6 +185,8 @@ export interface ShotState {
 export type TerrainChange =
   /** The dirt inside a circle is destroyed. */
   | { op: "carve"; x: number; y: number; r: number }
+  /** A ball of dirt is made. */
+  | { op: "fill"; x: number; y: number; r: number }
   /** All the dirt that has nothing under it falls straight down. */
   | { op: "settle" };
 
@@ -166,6 +201,8 @@ export interface FieldState {
    */
   terrain: number[][];
   tanks: TankState[];
+  /** The wind of the round, as in the state of the room. */
+  wind: number;
 }
 
 // The messages
@@ -190,6 +227,12 @@ export type ErrorCode =
   | "rate-limited"
   /** The tank is still reloading after its last shot. */
   | "reloading"
+  /** There is no such weapon, or the player has none of it. */
+  | "no-weapon"
+  /** The player does not have the money for what it tried to buy. */
+  | "no-money"
+  /** The player would have more of an item than anyone can have. */
+  | "too-many"
   /** The tank of the player has been destroyed. */
   | "destroyed"
   /** In the classic mode: it is not the turn of the player, or the player has already fired on this turn. */
@@ -204,7 +247,7 @@ export type ClientMessage =
   | { type: "create"; mode: RoomMode }
   /** A screen returns to its room, e.g. after a reload. Answered with "created". */
   | { type: "host"; room: string; hostKey: string }
-  /** A controller joins the room of a token of the QR code. Answered with "joined". */
+  /** A controller joins the room of a token of the QR code, in the lobby or while the shop is open. Answered with "joined". */
   | { type: "join"; token: string; name: string }
   /** A controller returns to its player, e.g. after the phone was locked. Answered with "joined". */
   | { type: "resume"; room: string; playerKey: string }
@@ -226,7 +269,13 @@ export type ClientMessage =
   | { type: "lobby" }
   /** A player turns the turret or sets the power, or both. */
   | { type: "aim"; angle?: number; power?: number }
-  /** A player fires the tank, with the aim it has. */
+  /** A player chooses the weapon the tank fires next. Answered with "weapons". */
+  | { type: "weapon"; weapon: string }
+  /** In the shop: a player buys a bundle of a weapon. Answered with "weapons"; the money is in the state of the room. */
+  | { type: "buy"; weapon: string }
+  /** In the shop: a player has bought what it wants. The next round starts when everyone has said so. */
+  | { type: "ready" }
+  /** A player fires the tank, with the aim and the weapon it has. */
   | { type: "fire" }
   /** A player says something in a speech bubble above the tank. */
   | { type: "say"; text: string };
@@ -257,8 +306,13 @@ export type ServerMessage =
   | { type: "reload"; time: number }
   /** To those who show the playing field: all the projectiles in the air, while there are any, and once more when there are none. */
   | { type: "shots"; shots: ShotState[] }
-  /** To those who show the playing field: an explosion. */
-  | { type: "explode"; x: number; y: number; radius: number }
+  /**
+   * To a player: the weapon its tank fires next, and how many it has of each weapon, by the id of the
+   * weapon. A weapon there is no end of (the Baby Missile) is not among them, nor one the player has none of.
+   */
+  | { type: "weapons"; selected: string; counts: Record<string, number> }
+  /** To those who show the playing field: a weapon went off. The id of the weapon tells what it looks and sounds like. */
+  | { type: "explode"; x: number; y: number; radius: number; weapon: string }
   /** To those who show the playing field: the dirt changed, and the tanks are as they are after it: where, and with what energy. */
   | { type: "terrain"; changes: TerrainChange[]; tanks: TankState[] }
   /** To those who show the playing field, and to the one who said it: a speech bubble. */
@@ -281,10 +335,14 @@ function isText(value: unknown, maxLength: number): value is string {
 
 export function isRoomSettings(value: unknown): value is RoomSettings {
   if (typeof value !== "object" || value === null) return false;
-  const { maxPlayers, rounds, turns } = value as RoomSettings;
+  const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel } = value as RoomSettings;
   return (
     isInteger(maxPlayers, MIN_PLAYERS, MAX_PLAYERS) &&
     isInteger(rounds, MIN_ROUNDS, MAX_ROUNDS) &&
+    isInteger(maxWind, 0, MAX_WIND) &&
+    isInteger(cash, 0, MAX_CASH) &&
+    isInteger(interest, 0, MAX_INTEREST) &&
+    isInteger(armsLevel, 0, MAX_ARMS_LEVEL) &&
     (turns === "classic" || turns === "live")
   );
 }
@@ -299,6 +357,7 @@ export function isClientMessage(value: unknown): value is ClientMessage {
     case "leave":
     case "start":
     case "lobby":
+    case "ready":
     case "fire":
       return true;
     case "create":
@@ -323,6 +382,9 @@ export function isClientMessage(value: unknown): value is ClientMessage {
         (power === undefined || isInteger(power, MIN_POWER, MAX_POWER))
       );
     }
+    case "weapon":
+    case "buy":
+      return isId(message.weapon);
     case "say":
       return isText(message.text, MAX_SAY_LENGTH);
     default:

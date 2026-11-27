@@ -38,7 +38,10 @@ describe("a hotseat game", () => {
     vi.stubGlobal("__PLAYER_TESTING_MODE__", false);
     window.location.hash = "";
     // The terrain is the same every time, so that a shot lands where it did the last time
-    backend = await startBackend({ allowedOrigins: [window.location.origin, "http://localhost"], rooms: { seed: 1 } });
+    backend = await startBackend({
+      allowedOrigins: [window.location.origin, "http://localhost"],
+      rooms: { seed: 1, maxWind: 0, kit: true, shopTime: 0 }
+    });
   });
 
   afterEach(async () => {
@@ -71,6 +74,25 @@ describe("a hotseat game", () => {
       await shownToken();
       for (let clicks = 0; clicks < 5; clicks++) fireEvent.click(screen.getByRole("button", { name: "Fewer rounds" }));
       await vi.waitFor(() => expect(screen.getByLabelText("Rounds")).toHaveTextContent("5"), FIND);
+    });
+
+    it("sets the strongest wind, and shows the wind of a round on the screen and on a phone", async () => {
+      await start();
+      const token = await shownToken();
+      expect(screen.getByLabelText("Wind at most")).toHaveTextContent("None");
+      for (let clicks = 0; clicks < 10; clicks++) fireEvent.click(screen.getByRole("button", { name: "More wind" }));
+      await vi.waitFor(() => expect(screen.getByLabelText("Wind at most")).toHaveTextContent("500"), FIND);
+      expect(screen.getByRole("button", { name: "More wind" })).toBeDisabled();
+
+      const ann = await openController(backend, token, "Ann");
+      clients.push(ann, await openController(backend, token, "Bob"));
+      fireEvent.click(await screen.findByRole("button", { name: "Start the game" }, FIND));
+      await vi.waitFor(() => expect(screen.getByLabelText("Wind")).toHaveTextContent(/Wind \d+/), FIND);
+      const shown = screen.getByLabelText("Wind").textContent!;
+      let room = (await ann.next("room")).state;
+      while (room.phase !== "playing") room = (await ann.next("room")).state;
+      const { wind } = room;
+      expect(shown).toBe(wind < 0 ? `◀ Wind ${-wind}` : `Wind ${wind} ▶`);
     });
 
     it("shows whose turn it is in the classic mode, and passes the turn after a shot", async () => {
@@ -293,7 +315,10 @@ describe("a hotseat game", () => {
       clients.push(host);
       ({ token } = await host.next("token"));
       // Most of these tests fire without waiting for a turn
-      host.send({ type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "live" } });
+      host.send({
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       window.location.hash = `#/join/${token}`;
     });
 
@@ -411,6 +436,30 @@ describe("a hotseat game", () => {
       expect(screen.getByLabelText("Angle")).toHaveTextContent(shown);
     });
 
+    it("chooses a weapon, fires it, and shows how many are left", async () => {
+      await joinAs("Ann");
+      clients.push(await openController(backend, token, "Bob"));
+      host.send({ type: "start" });
+      const weapon = (await screen.findByLabelText("Weapon", {}, FIND)) as HTMLSelectElement;
+      expect(weapon.value).toBe("baby-missile");
+      expect(screen.getByRole("option", { name: "Missile × 5" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Heavy Roller × 2" })).toBeInTheDocument();
+
+      fireEvent.change(weapon, { target: { value: "tracer" } });
+      const fire = screen.getByRole("button", { name: "Fire" });
+      await vi.waitFor(() => expect(fire).toBeEnabled(), FIND);
+      fireEvent.click(fire);
+      expect(await screen.findByRole("option", { name: "Tracer × 19" }, FIND)).toBeInTheDocument();
+      expect((await host.next("shots")).shots[0].weapon).toBe("tracer");
+      expect(weapon.value).toBe("tracer");
+
+      // After a reload of the page the phone still knows what the tank has
+      cleanup();
+      render(<App apiUrl={backend.url} />);
+      expect(await screen.findByRole("option", { name: "Tracer × 19" }, FIND)).toBeInTheDocument();
+      expect((screen.getByLabelText("Weapon") as HTMLSelectElement).value).toBe("tracer");
+    });
+
     it("fires, and reloads after it", async () => {
       await joinAs("Ann");
       clients.push(await openController(backend, token, "Bob"));
@@ -425,7 +474,9 @@ describe("a hotseat game", () => {
 
       expect(await screen.findByRole("button", { name: "Reloading…" }, FIND)).toBeDisabled();
       const { shots } = await host.next("shots");
-      expect(shots).toEqual([{ id: 1, owner: 0, x: expect.any(Number), y: expect.any(Number) }]);
+      expect(shots).toEqual([
+        { id: 1, owner: 0, weapon: "baby-missile", x: expect.any(Number), y: expect.any(Number) }
+      ]);
       // At so little power the shot comes down close by
       const { x } = (await host.next("field")).field.tanks[0];
       expect(Math.abs((await host.next("explode")).x - x)).toBeLessThan(40);
@@ -455,7 +506,10 @@ describe("a hotseat game", () => {
       await joinAs("Ann");
       const bob = await openController(backend, token, "Bob");
       clients.push(bob);
-      host.send({ type: "settings", settings: { maxPlayers: 8, rounds: 1, turns: "live" } });
+      host.send({
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 1, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       host.send({ type: "start" });
       await screen.findByLabelText("Energy", {}, FIND);
 
@@ -470,7 +524,10 @@ describe("a hotseat game", () => {
     });
 
     it("tells when it is the turn of the player in the classic mode, and lets the player fire only then", async () => {
-      host.send({ type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "classic" } });
+      host.send({
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 10, turns: "classic", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      });
       await joinAs("Ann");
       const bob = await openController(backend, token, "Bob");
       clients.push(bob);
@@ -563,6 +620,87 @@ describe("a hotseat game", () => {
       window.location.hash = `#/controller/${room}`;
       render(<App apiUrl={backend.url} />);
       expect(await screen.findByText("You are not in this game.", {}, FIND)).toBeInTheDocument();
+    });
+  });
+
+  describe("with the shop", () => {
+    beforeEach(async () => {
+      // A backend with the real shop: the others have none, to get from a round to the next at once
+      await backend.stop();
+      backend = await startBackend({
+        allowedOrigins: [window.location.origin, "http://localhost"],
+        rooms: { seed: 1, maxWind: 0 }
+      });
+    });
+
+    it("lets a phone buy weapons before the round, and starts the round when everyone is ready", async () => {
+      const { screen: host } = await openScreen(backend);
+      clients.push(host);
+      const { token } = await host.next("token");
+      host.send({
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 10000, interest: 5, armsLevel: 4 }
+      });
+      window.location.hash = `#/join/${token}`;
+      render(<App apiUrl={backend.url} />);
+      fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ann" } });
+      const button = screen.getByRole("button", { name: "Join" });
+      await vi.waitFor(() => expect(button).toBeEnabled(), FIND);
+      fireEvent.click(button);
+      await screen.findByRole("heading", { name: "Ann" }, FIND);
+      const bob = await openController(backend, token, "Bob");
+      clients.push(bob);
+      host.send({ type: "start" });
+
+      expect(await screen.findByText("The shop is open before round 1.", {}, FIND)).toBeInTheDocument();
+      expect(screen.getByLabelText("Money")).toHaveTextContent("$10,000");
+      // A Nuke costs more than there is
+      expect(screen.getByRole("button", { name: "Buy Nuke" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "Buy Missile" }));
+      await vi.waitFor(() => expect(screen.getByLabelText("Money")).toHaveTextContent("$8,125"), FIND);
+      expect(await screen.findByText(/5 for \$1,875 · you have 5/, {}, FIND)).toBeInTheDocument();
+
+      // After a reload of the page the phone is still in the shop, with what it bought
+      cleanup();
+      render(<App apiUrl={backend.url} />);
+      expect(await screen.findByText(/5 for \$1,875 · you have 5/, {}, FIND)).toBeInTheDocument();
+      expect(screen.getByLabelText("Money")).toHaveTextContent("$8,125");
+
+      fireEvent.click(screen.getByRole("button", { name: "Ready" }));
+      expect(await screen.findByRole("button", { name: "Waiting for the others…" }, FIND)).toBeDisabled();
+      bob.send({ type: "ready" });
+      expect(await screen.findByRole("option", { name: "Missile × 5" }, FIND)).toBeInTheDocument();
+    });
+
+    it("shows the shop on the screen, with the money of the players", async () => {
+      render(<App apiUrl={backend.url} />);
+      const button = screen.getByRole("button", { name: "Start a hotseat game" });
+      await vi.waitFor(() => expect(button).toBeEnabled(), FIND);
+      fireEvent.click(button);
+      await screen.findByRole("heading", { name: "Waiting for players" }, FIND);
+      expect(screen.getByLabelText("Cash at start")).toHaveTextContent("$0");
+      fireEvent.click(screen.getByRole("button", { name: "More cash" }));
+      fireEvent.click(screen.getByRole("button", { name: "More cash" }));
+      await vi.waitFor(() => expect(screen.getByLabelText("Cash at start")).toHaveTextContent("$10,000"), FIND);
+
+      const ann = await join("Ann");
+      const bob = await join("Bob");
+      fireEvent.click(await screen.findByRole("button", { name: "Start the game" }, FIND));
+      expect(await screen.findByRole("heading", { name: "The shop is open" }, FIND)).toBeInTheDocument();
+      ann.send({ type: "buy", weapon: "baby-nuke" });
+      await vi.waitFor(() => expect(screen.getByLabelText("Money of Ann")).toHaveTextContent("$0"), FIND);
+      expect(screen.getByLabelText("Money of Bob")).toHaveTextContent("$10,000");
+
+      ann.send({ type: "ready" });
+      expect(await screen.findByText(/1 of 2 ready/, {}, FIND)).toBeInTheDocument();
+
+      // The QR code is shown again: a new player can join between the rounds
+      const cid = await join("Cid");
+      expect(await screen.findByText(/1 of 3 ready/, {}, FIND)).toBeInTheDocument();
+      expect(screen.getByLabelText("Money of Cid")).toHaveTextContent("$10,000");
+      cid.send({ type: "ready" });
+      bob.send({ type: "ready" });
+      expect(await screen.findByRole("img", { name: "The playing field" }, FIND)).toBeInTheDocument();
     });
   });
 });

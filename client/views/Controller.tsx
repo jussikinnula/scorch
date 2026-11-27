@@ -6,7 +6,10 @@ import AimControl from "../components/AimControl";
 import FireControl from "../components/FireControl";
 import PlayerList from "../components/PlayerList";
 import SayControl from "../components/SayControl";
+import Shop from "../components/Shop";
 import Standings, { ranked } from "../components/Standings";
+import WeaponControl from "../components/WeaponControl";
+import Wind from "../components/Wind";
 import { Api, useApiMessages } from "../hooks/useApiConnection";
 import { useBubbles } from "../hooks/useBubbles";
 import { useCountdown } from "../hooks/useCountdown";
@@ -42,12 +45,15 @@ export default function Controller({ api, room }: Props) {
   const turn = state?.turn ?? null;
   const myTurn = turn !== null && turn.player === self && turn.time > 0;
   const turnTime = useCountdown(turn ? turn.time : null, state);
+  const shopTime = useCountdown(state?.shop ? state.shop.time : null, state);
   useEffect(() => {
     // The phone tells that the turn has come, also to one who is looking at the big screen
     if (myTurn) window.navigator.vibrate?.(200);
   }, [myTurn]);
   // The reload of the tank that is going on, as the server told it
   const [reload, setReload] = useState({ until: 0, time: 0 });
+  /** The weapons of the player and the one the tank fires next, once the server has told them. */
+  const [weapons, setWeapons] = useState<{ selected: string; counts: Record<string, number> } | null>(null);
   // What the player last said, as the server showed it, for as long as the bubble is on the screen
   const { bubbles, say: showBubble } = useBubbles();
   const said: string | undefined = self === null ? undefined : bubbles[self];
@@ -102,6 +108,8 @@ export default function Controller({ api, room }: Props) {
       setResult({ round: message.round, winner: message.winner });
     } else if (message.type === "reload") {
       setReload({ until: performance.now() + message.time, time: message.time });
+    } else if (message.type === "weapons") {
+      setWeapons({ selected: message.selected, counts: message.counts });
     } else if (message.type === "say" && message.id === selfNow.current) {
       showBubble(message.id, message.text);
     } else if (message.type === "error") {
@@ -183,8 +191,15 @@ export default function Controller({ api, room }: Props) {
                   : `${state.players.find((player) => player.id === turn.player)?.name ?? "?"} is aiming`}
             </p>
           )}
+          <Wind wind={state.wind} className="controller__wind" />
           <p className="controller__energy" aria-label="Energy">
-            <span style={{ width: `${energy}%` }} />
+            <span
+              style={{
+                width: `${energy}%`,
+                // Green, then yellow under a half and red under a quarter: as the bar of the tank on the big screen
+                background: energy > 50 ? "#2f8f5b" : energy > 25 ? "#b8860b" : "#c0392b"
+              }}
+            />
             {energy}
           </p>
           <AimControl
@@ -194,6 +209,17 @@ export default function Controller({ api, room }: Props) {
             color={playerColor(me.id)}
             onChange={changeAim}
           />
+          {weapons && (
+            <WeaponControl
+              selected={weapons.selected}
+              counts={weapons.counts}
+              onSelect={(weapon) => {
+                // Shown at once; the server answers with what the tank really has
+                setWeapons({ ...weapons, selected: weapon });
+                api.send({ type: "weapon", weapon });
+              }}
+            />
+          )}
           <FireControl
             reloadedAt={reload.until}
             reloadTime={reload.time}
@@ -211,6 +237,22 @@ export default function Controller({ api, room }: Props) {
               You said: {said}
             </p>
           )}
+        </>
+      )}
+      {state.phase === "shop" && state.shop && (
+        <>
+          <p className="controller__status" role="status">
+            The shop is open before round {state.round + 1}.
+          </p>
+          <Shop
+            money={me.money}
+            counts={weapons?.counts ?? {}}
+            ready={state.shop.ready.includes(me.id)}
+            time={shopTime}
+            armsLevel={state.settings.armsLevel}
+            onBuy={(weapon) => api.send({ type: "buy", weapon })}
+            onReady={() => api.send({ type: "ready" })}
+          />
         </>
       )}
       {state.phase === "lobby" && <PlayerList players={state.players} self={me.id} />}

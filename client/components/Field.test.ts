@@ -36,10 +36,10 @@ describe("wrapText", () => {
 });
 
 describe("placeShots", () => {
-  const previous = [{ id: 1, owner: 0, x: 100, y: 200 }];
+  const previous = [{ id: 1, owner: 0, weapon: "baby-missile", x: 100, y: 200 }];
   const shots = [
-    { id: 1, owner: 0, x: 130, y: 180 },
-    { id: 2, owner: 1, x: 500, y: 500 }
+    { id: 1, owner: 0, weapon: "baby-missile", x: 130, y: 180 },
+    { id: 2, owner: 1, weapon: "baby-missile", x: 500, y: 500 }
   ];
 
   it("puts a projectile on the way from where it was to where it is", () => {

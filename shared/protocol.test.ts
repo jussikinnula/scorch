@@ -18,7 +18,10 @@ describe("isClientMessage", () => {
       { type: "resume", room: "k3v9x2ab", playerKey: "Zm9v_YmFy-0" },
       { type: "rejoin", token: "a1b2c3d4e5", playerKey: "Zm9v_YmFy-0" },
       { type: "leave" },
-      { type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "live" } },
+      {
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      },
       { type: "lobby" },
       { type: "kick", id: 0 },
       { type: "start" },
@@ -28,6 +31,10 @@ describe("isClientMessage", () => {
       { type: "aim", angle: 180, power: 0 },
       { type: "say", text: "Eat this!" }
     ];
+    expect(isClientMessage({ type: "weapon", weapon: "baby-nuke" })).toBe(true);
+    expect(isClientMessage({ type: "buy", weapon: "missile" })).toBe(true);
+    expect(isClientMessage({ type: "ready" })).toBe(true);
+    expect(isClientMessage({ type: "buy" })).toBe(false);
     for (const message of messages) expect(isClientMessage(message), JSON.stringify(message)).toBe(true);
   });
 
@@ -49,18 +56,35 @@ describe("isClientMessage", () => {
       { type: "rejoin", token: "a1b2c3d4e5" },
       { type: "rejoin", playerKey: "Zm9v_YmFy-0" },
       { type: "settings" },
-      { type: "settings", settings: { maxPlayers: 1, rounds: 10, turns: "live" } },
-      { type: "settings", settings: { maxPlayers: 11, rounds: 10, turns: "live" } },
+      {
+        type: "settings",
+        settings: { maxPlayers: 1, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      },
+      {
+        type: "settings",
+        settings: { maxPlayers: 11, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      },
       { type: "settings", settings: { maxPlayers: 8 } },
       { type: "settings", settings: { maxPlayers: 8, rounds: 10 } },
-      { type: "settings", settings: { maxPlayers: 8, rounds: 10, turns: "fast" } },
-      { type: "settings", settings: { maxPlayers: 8, rounds: 0, turns: "live" } },
-      { type: "settings", settings: { maxPlayers: 8, rounds: 1001, turns: "live" } },
+      {
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 10, turns: "fast", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      },
+      {
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 0, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      },
+      {
+        type: "settings",
+        settings: { maxPlayers: 8, rounds: 1001, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+      },
       { type: "kick" },
       { type: "kick", id: -1 },
       { type: "kick", id: 10 },
       { type: "kick", id: 1.5 }
     ];
+    for (const weapon of [undefined, 5, "", "two words"])
+      expect(isClientMessage({ type: "weapon", weapon })).toBe(false);
     for (const message of messages) expect(isClientMessage(message), JSON.stringify(message)).toBe(false);
   });
 
@@ -87,14 +111,45 @@ describe("isClientMessage", () => {
 
 describe("isRoomSettings", () => {
   it("accepts 2-10 players and 1-1000 rounds", () => {
-    expect(isRoomSettings({ maxPlayers: 2, rounds: 1, turns: "live" })).toBe(true);
-    expect(isRoomSettings({ maxPlayers: 2, rounds: 1, turns: "classic" })).toBe(true);
+    expect(
+      isRoomSettings({ maxPlayers: 2, rounds: 1, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 })
+    ).toBe(true);
+    expect(
+      isRoomSettings({ maxPlayers: 2, rounds: 1, turns: "classic", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 })
+    ).toBe(true);
     expect(isRoomSettings({ maxPlayers: 2, rounds: 1 })).toBe(false);
-    expect(isRoomSettings({ maxPlayers: 10, rounds: 1000, turns: "live" })).toBe(true);
-    expect(isRoomSettings({ maxPlayers: 8.5, rounds: 10, turns: "live" })).toBe(false);
+    expect(
+      isRoomSettings({ maxPlayers: 10, rounds: 1000, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 })
+    ).toBe(true);
+    expect(
+      isRoomSettings({ maxPlayers: 8, rounds: 10, turns: "live", maxWind: 500, cash: 0, interest: 5, armsLevel: 4 })
+    ).toBe(true);
+    for (const maxWind of [undefined, -1, 501, 0.5, "200"]) {
+      expect(isRoomSettings({ maxPlayers: 8, rounds: 10, turns: "live", maxWind })).toBe(false);
+    }
+    for (const cash of [undefined, -5000, 1000001, 0.5]) {
+      expect(isRoomSettings({ maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash })).toBe(false);
+    }
+    expect(
+      isRoomSettings({ maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 1000000, interest: 5, armsLevel: 4 })
+    ).toBe(true);
+    expect(
+      isRoomSettings({ maxPlayers: 8.5, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 })
+    ).toBe(false);
     expect(isRoomSettings({ maxPlayers: 8, rounds: 2.5 })).toBe(false);
     expect(isRoomSettings({})).toBe(false);
     expect(isRoomSettings(null)).toBe(false);
+  });
+});
+
+describe("the settings of the economy", () => {
+  const settings = { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 };
+
+  it("have an interest of 0 to 30 per cent and an arms level of 0 to 4", () => {
+    expect(isRoomSettings(settings)).toBe(true);
+    expect(isRoomSettings({ ...settings, interest: 30, armsLevel: 0 })).toBe(true);
+    for (const interest of [undefined, -1, 31, 2.5]) expect(isRoomSettings({ ...settings, interest })).toBe(false);
+    for (const armsLevel of [undefined, -1, 5, 1.5]) expect(isRoomSettings({ ...settings, armsLevel })).toBe(false);
   });
 });
 
@@ -112,7 +167,11 @@ describe("the version of the protocol", () => {
     3: "33e986dc878d9fea",
     4: "d252a3503257c8fd",
     5: "81ea370a0695494a",
-    6: "a1beab696b9687ab"
+    6: "a1beab696b9687ab",
+    7: "fa52dd71ac102570",
+    8: "1c3dc1ab37d3fe99",
+    9: "d842a2c0ed112fef",
+    10: "95a0e636ae33ac22"
   };
 
   it("is raised when the protocol changes", () => {
