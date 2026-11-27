@@ -6,7 +6,8 @@ import { FADE_TIME, Music, MUSIC_VOLUME, Player, trackOf, tracksOf } from "./mus
 /** An audio element of a test: it remembers what was done to it. */
 class FakePlayer implements Player {
   volume = 1;
-  loop = false;
+  currentTime = 0;
+  duration = 120;
   playing = false;
   ended: (() => void) | null = null;
   constructor(public url: string) {}
@@ -74,7 +75,6 @@ describe("the music", () => {
     vi.advanceTimersByTime(FADE_TIME);
     expect(players[0].volume).toBeCloseTo(MUSIC_VOLUME);
     expect(MUSIC_VOLUME).toBeLessThanOrEqual(0.3);
-    expect(players[0].loop).toBe(true);
     // Asking for the same again changes nothing
     music.want("title");
     vi.advanceTimersByTime(FADE_TIME);
@@ -116,7 +116,6 @@ describe("the music", () => {
     music.want("game");
     vi.advanceTimersByTime(FADE_TIME * 2);
     expect(music.heard).toMatchObject({ track: "game", piece: 0 });
-    expect(players[0].loop).toBe(false);
     players[0].playing = false;
     players[0].ended?.();
     vi.advanceTimersByTime(FADE_TIME * 2);
@@ -126,7 +125,36 @@ describe("the music", () => {
     music.want("victory");
     vi.advanceTimersByTime(FADE_TIME * 3);
     expect(playing().map((player) => player.url)).toEqual(["victory"]);
-    expect(players[2].loop).toBe(false);
+    // The music of the end is played once: when it is over there is silence
+    players[2].playing = false;
+    players[2].ended?.();
+    vi.advanceTimersByTime(FADE_TIME * 2);
+    expect(playing()).toEqual([]);
+    expect(players).toHaveLength(3);
+  });
+
+  it("fades out towards the end of a piece and starts it again with a fade in: no cut where it loops", () => {
+    music.setEnabled(true);
+    music.want("title");
+    vi.advanceTimersByTime(FADE_TIME * 2);
+    expect(players[0].volume).toBeCloseTo(MUSIC_VOLUME);
+
+    // Half a fade from its end it is half as loud, and at the end silent
+    players[0].currentTime = players[0].duration - FADE_TIME / 2000;
+    vi.advanceTimersByTime(100);
+    expect(players[0].volume).toBeCloseTo(MUSIC_VOLUME / 2, 1);
+    players[0].currentTime = players[0].duration;
+    vi.advanceTimersByTime(100);
+    expect(players[0].volume).toBe(0);
+    players[0].playing = false;
+    players[0].ended?.();
+
+    // The same piece again, from silence
+    expect(playing().map((player) => player.url)).toEqual(["title"]);
+    expect(players).toHaveLength(2);
+    expect(players[1].volume).toBeLessThan(0.02);
+    vi.advanceTimersByTime(FADE_TIME * 2);
+    expect(players[1].volume).toBeCloseTo(MUSIC_VOLUME);
   });
 
   it("fades out when it is turned off or silence is asked for, and is silent for a track that has no files", () => {

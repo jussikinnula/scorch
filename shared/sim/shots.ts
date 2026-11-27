@@ -1,7 +1,8 @@
 import { FieldState, TankState } from "../protocol";
-import { TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "./field";
-import { PARACHUTE_THRESHOLD } from "../accessories";
+import { SHIELD_RADIUS, TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "./field";
+import { DEFLECT_COST, PARACHUTE_THRESHOLD } from "../accessories";
 import {
+  chargeOf,
   DEFAULT_WEAPON,
   findWeapon,
   FUNKY_BOMBS,
@@ -9,6 +10,7 @@ import {
   LEAP_FROG_RADII,
   MIRV_WARHEADS,
   Weapon,
+  WeaponKind,
   WEAPONS
 } from "../weapons";
 import { flow, groundAt, groundBelow, isDirt, TerrainOp, applyTerrainOp } from "./terrain";
@@ -82,6 +84,9 @@ export const NAPALM_BESIDE = 16;
 const flameReach = (depth: number) => 6 + depth * 3;
 /** How deep Napalm lies on a tank, in pixels, when it takes all that the weapon can take. Our own value. */
 export const NAPALM_DEEP = 6;
+/** How much of its speed a projectile keeps when it bounces off a shield, and the least speed sideways it leaves with, in pixels a second. Our own values. */
+const DEFLECT_KEEP = 0.7;
+const DEFLECT_ASIDE = 90;
 /** How fast the head of a tunnel eats its way through the dirt, in pixels a second. Our own value. */
 export const DIG_SPEED = 100;
 /** How many degrees apart the tunnels of a digger are. Our own value. */
@@ -134,6 +139,8 @@ export interface Shot {
   leaving?: boolean;
   /** Which of the bombs that a Funky Bomb threw this is, from 0. */
   part?: number;
+  /** How large the explosion of such a bomb is, as a multiple of that of the weapon: they are of different sizes. */
+  size?: number;
   /**
    * The head of a tunnel that a digger or a sandhog digs: where the tunnel starts, which way it goes
    * in radians, how much of it is dug in pixels, the id of the projectile that it came from, and of
@@ -144,6 +151,8 @@ export interface Shot {
    * over, the tops of what lies on that ground so far, and for how many steps it has spilled.
    */
   spill?: { left: number; ground: number[]; tops: number[]; steps: number };
+  /** How many batteries an energy weapon uses for this shot. */
+  batteries?: number;
   /** Liquid dirt that has landed and oozes out: how much of it is left, in pixels of dirt. */
   pour?: { left: number };
   dig?: { from: { x: number; y: number }; angle: number; done: number; group: number; left?: number };
@@ -178,6 +187,10 @@ export type ShotEvent =
    * It is told again with the same id as it spreads: each telling is all of it.
    */
   | { event: "burn"; id: number; x: number; depths: number[]; weapon: string }
+  /** A beam went from one point to another: it is there for a moment. */
+  | { event: "beam"; x1: number; y1: number; x2: number; y2: number; weapon: string }
+  /** A projectile bounced off the shield of a tank, which lost some of itself. What is left of it is in the tank. */
+  | { event: "deflect"; id: number; x: number; y: number }
   /** A parachute of a tank opened, and took the damage of a fall. */
   | { event: "parachute"; id: number };
 
@@ -200,12 +213,30 @@ export function turretTip(tank: TankState) {
 }
 
 /** A projectile that a tank fires with its aim. */
-export function launch(tank: TankState, id: number, weapon: string = DEFAULT_WEAPON): Shot {
+/** The kinds of weapons that are not thrown: they go off at the tank, at once. */
+const NOT_THROWN: WeaponKind[] = ["charge", "plasma", "laser"];
+
+/**
+ * A projectile that a tank fires with its aim.
+ *
+ * @param batteries How many batteries the shot uses, for an energy weapon.
+ */
+export function launch(tank: TankState, id: number, weapon: string = DEFAULT_WEAPON, batteries = 0): Shot {
   const angle = (tank.angle * Math.PI) / 180;
-  // A charge is not thrown anywhere: its speed only tells which way the turret points
-  const speed = findWeapon(weapon)?.kind === "charge" ? 1 : tank.power * SPEED_PER_POWER;
+  // What is not thrown goes nowhere: its speed only tells which way the turret points
+  const kind = findWeapon(weapon)?.kind;
+  const still = kind !== undefined && NOT_THROWN.includes(kind);
+  const speed = still ? 1 : tank.power * SPEED_PER_POWER;
   const velocity = { vx: Math.cos(angle) * speed, vy: -Math.sin(angle) * speed };
-  return { id, owner: tank.id, weapon, ...turretTip(tank), ...velocity };
+  const shot: Shot = { id, owner: tank.id, weapon, ...turretTip(tank), ...velocity };
+  return kind === "plasma" || kind === "laser" ? { ...shot, batteries } : shot;
+}
+
+/** The shield of a tank is used up: it is gone, with what it did. */
+function dropShield(tank: TankState) {
+  tank.shield = 0;
+  tank.shieldMax = 0;
+  delete tank.deflects;
 }
 
 /** Whether a point is inside the body of a tank. A wreck does not stop a projectile. */
@@ -262,6 +293,58 @@ function detonate(
     through: weapon.kind === "sandhog"
   };
   changeField(field, ops, weapon.damage > 0 ? harm : null, by, events, world);
+}
+
+/** The least radius of a Plasma Blast, with no batteries, in pixels of the original game: as in its manual. */
+const PLASMA_LEAST = 10;
+
+/**
+ * A Plasma Blast goes off: a burst of energy around the tank that fired it, the larger and the
+ * stronger the more batteries it uses. It goes through the dirt and leaves it as it is, and takes
+ * energy from the other tanks it reaches, the more the nearer they are. The tank itself is not hurt.
+ */
+function plasma(field: FieldState, weapon: Weapon, shot: Shot, events: ShotEvent[], world: World) {
+  const tank = field.tanks.find((candidate) => candidate.id === shot.owner);
+  if (!tank) return;
+  const charge = chargeOf(shot.batteries ?? 0);
+  const full = (charge - chargeOf(0)) / (1 - chargeOf(0));
+  const r = Math.round((PLASMA_LEAST + (weapon.radius - PLASMA_LEAST) * full) * ORIGINAL_SCALE);
+  const at = { x: Math.round(tank.x), y: Math.round(tank.y - TANK_HEIGHT / 2) };
+  events.push({ event: "explode", ...at, radius: r, weapon: weapon.id });
+  const to = (other: TankState) =>
+    other.id === shot.owner ? 0 : damageTo(other, at.x, at.y, r + TANK_WIDTH / 2, Math.round(weapon.damage * charge));
+  changeField(field, [], { to }, shot.owner, events, world);
+}
+
+/**
+ * A Laser fires: a straight beam from the end of the turret to the edge of the field, through the
+ * dirt. It takes the same energy from every other tank on its way, the more the more batteries it
+ * uses, and a shield does not stop it.
+ */
+function laser(field: FieldState, weapon: Weapon, shot: Shot, events: ShotEvent[], world: World) {
+  const speed = Math.hypot(shot.vx, shot.vy);
+  const way = speed > 0 ? { x: shot.vx / speed, y: shot.vy / speed } : { x: 0, y: -1 };
+  // As far as it takes to be out of the field, whichever way it goes
+  const reach = field.width + field.height;
+  const end = { x: Math.round(shot.x + way.x * reach), y: Math.round(shot.y + way.y * reach) };
+  events.push({
+    event: "beam",
+    x1: Math.round(shot.x),
+    y1: Math.round(shot.y),
+    x2: end.x,
+    y2: end.y,
+    weapon: weapon.id
+  });
+  const most = Math.round(weapon.damage * chargeOf(shot.batteries ?? 0));
+  const to = (tank: TankState) => {
+    if (tank.id === shot.owner) return 0;
+    // The beam is walked a few pixels at a time: a tank is not thinner than that
+    for (let distance = 0; distance <= reach; distance += 4) {
+      if (hitsTank(tank, shot.x + way.x * distance, shot.y + way.y * distance)) return most;
+    }
+    return 0;
+  };
+  changeField(field, [], { to, through: true }, shot.owner, events, world);
 }
 
 /**
@@ -436,7 +519,7 @@ function changeField(
       if (amount > 0 && tank.shield > 0 && by !== tank.id && !harm.through) {
         const taken = Math.min(tank.shield, amount);
         tank.shield -= taken;
-        if (tank.shield === 0) tank.shieldMax = 0;
+        if (tank.shield === 0) dropShield(tank);
         amount -= taken;
         events.push({ event: "shield", id: tank.id, amount: taken, by });
       }
@@ -578,6 +661,14 @@ export function stepShots(
       charge(field, weapon, shot, events, world);
       continue;
     }
+    if (weapon.kind === "plasma") {
+      plasma(field, weapon, shot, events, world);
+      continue;
+    }
+    if (weapon.kind === "laser") {
+      laser(field, weapon, shot, events, world);
+      continue;
+    }
     if (shot.roll) {
       const rolling = rollShot(field, shot, weapon, events, world);
       if (rolling) flying.push(rolling);
@@ -609,9 +700,33 @@ export function stepShots(
     const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y)));
     let hit: { x: number; y: number; tank: boolean } | null = null;
     let leaving = shot.leaving;
-    for (let i = 1; i <= steps && !hit; i++) {
+    let bounced: Shot | null = null;
+    let before = from;
+    for (let i = 1; i <= steps && !hit && !bounced; i++) {
       const x = from.x + ((to.x - from.x) * i) / steps;
       const y = from.y + ((to.y - from.y) * i) / steps;
+      // A shield that deflects throws back the projectile of another that flies into it from outside: it goes
+      // off the shield as a ball off a wall, and the shield loses some of itself
+      for (const tank of leaving ? [] : field.tanks) {
+        if (!tank.deflects || tank.shield <= 0 || tank.energy <= 0 || tank.id === shot.owner) continue;
+        const middle = { x: tank.x, y: tank.y - TANK_HEIGHT / 2 };
+        const distance = Math.hypot(x - middle.x, y - middle.y);
+        if (distance > SHIELD_RADIUS || Math.hypot(before.x - middle.x, before.y - middle.y) <= SHIELD_RADIUS) continue;
+        const out = { x: (x - middle.x) / (distance || 1), y: (y - middle.y) / (distance || 1) };
+        const inward = vx * out.x + vy * out.y;
+        if (inward >= 0) continue;
+        // Off the shield, and always away from the tank sideways too: what came straight down does not come back
+        const away = x === middle.x ? (shot.id % 2 === 0 ? 1 : -1) : Math.sign(x - middle.x);
+        const off = { vx: (vx - 2 * inward * out.x) * DEFLECT_KEEP, vy: (vy - 2 * inward * out.y) * DEFLECT_KEEP };
+        if (off.vx * away < DEFLECT_ASIDE) off.vx = away * DEFLECT_ASIDE;
+        bounced = { ...shot, x: before.x, y: before.y, ...off };
+        tank.shield = Math.max(0, tank.shield - DEFLECT_COST);
+        if (tank.shield === 0) dropShield(tank);
+        events.push({ event: "deflect", id: tank.id, x: Math.round(x), y: Math.round(y) });
+        break;
+      }
+      if (bounced) break;
+      before = { x, y };
       const tank = field.tanks.some((candidate) => hitsTank(candidate, x, y));
       const stopped = tank || isDirt(field.terrain, x, y);
       // What was thrown from inside something is not stopped by it: only by what it meets after it has come out
@@ -619,6 +734,10 @@ export function stepShots(
       else if (stopped) hit = { x, y, tank };
     }
 
+    if (bounced) {
+      flying.push(bounced);
+      continue;
+    }
     if (hit && weapon.kind === "roller" && !hit.tank) {
       // A roller that lands on the ground starts to roll, the way it was going
       const x = Math.min(field.width - 1, Math.max(0, Math.round(hit.x)));
@@ -654,7 +773,8 @@ export function stepShots(
     } else if (hit) {
       // A MIRV that hits something on its way up goes off as the one warhead it still is
       const at = { x: Math.round(hit.x), y: Math.round(hit.y) };
-      detonate(field, weapon, at, shot.owner, events, world, undefined, shot.part);
+      const r = shot.size === undefined ? undefined : Math.round(blastRadius(weapon) * shot.size);
+      detonate(field, weapon, at, shot.owner, events, world, r, shot.part);
       if (weapon.kind === "funky" && !shot.warhead) {
         // A Funky Bomb throws bombs around where it went off: each of them explodes where it comes down
         for (let i = 0; i < FUNKY_BOMBS; i++) {
@@ -664,6 +784,8 @@ export function stepShots(
           const up = FUNKY_SPEED * (0.8 + 0.4 * scatter(at.x, shot.id, i + FUNKY_BOMBS));
           // On level ground a bomb thrown up at this speed is in the air for this long
           const time = (2 * up) / GRAVITY;
+          // From seven tenths of the size of the weapon to nearly half as large again
+          const size = 0.7 + 0.7 * scatter(shot.id + 1, at.x, i);
           flying.push({
             ...shot,
             ...at,
@@ -671,6 +793,7 @@ export function stepShots(
             warhead: true,
             leaving: true,
             part: i,
+            size,
             vx: reach / time,
             vy: -up
           });

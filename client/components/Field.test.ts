@@ -6,6 +6,11 @@ import {
   fallTanks,
   flameHeight,
   layoutField,
+  PLASMA_SIZE,
+  plasmaClouds,
+  plasmaColor,
+  pulseBands,
+  shadesOf,
   placeShots,
   shieldShade,
   smokeWisps,
@@ -195,5 +200,62 @@ describe("smokeWisps", () => {
 
   it("has none where there is no fire", () => {
     expect(smokeWisps(300, 0, 5000)).toEqual([]);
+  });
+});
+
+describe("the plasma", () => {
+  it("has clouds that are the same every time, of all values, and smooth from a pixel to the next", () => {
+    const clouds = plasmaClouds();
+    expect(clouds).toHaveLength(PLASMA_SIZE * PLASMA_SIZE);
+    expect(plasmaClouds()).toEqual(clouds);
+    expect(Math.max(...clouds) - Math.min(...clouds)).toBeGreaterThan(150);
+    for (let i = 1; i < PLASMA_SIZE; i++) expect(Math.abs(clouds[i] - clouds[i - 1])).toBeLessThan(40);
+  });
+
+  it("is red and black, and its colours run with the time", () => {
+    const colors = Array.from({ length: 256 }, (_, value) => plasmaColor(value, 0));
+    // Black veins and bright red patches, and never green or blue
+    expect(Math.min(...colors.map(([red]) => red))).toBeLessThan(20);
+    expect(Math.max(...colors.map(([red]) => red))).toBe(255);
+    for (const [red, green, blue] of colors) {
+      expect(green).toBeLessThanOrEqual(Math.max(red, 70));
+      expect(blue).toBeLessThanOrEqual(30);
+    }
+    // A moment later each value has the colour that another one had
+    expect(plasmaColor(100, 500)).toEqual(plasmaColor(150, 0));
+    expect(plasmaColor(100, 500)).not.toEqual(plasmaColor(100, 0));
+  });
+});
+
+describe("pulseBands", () => {
+  const colors = ["red", "yellow", "green", "blue"];
+
+  it("fills a ball with bands of colour from the outside in, the outermost as large as the ball", () => {
+    const bands = pulseBands(40, 1000, colors);
+    expect(bands[0].radius).toBe(40);
+    for (let i = 1; i < bands.length; i++) {
+      expect(bands[i].radius).toBeLessThan(bands[i - 1].radius);
+      expect(bands[i].color).not.toBe(bands[i - 1].color);
+    }
+    expect(new Set(bands.map((band) => band.color)).size).toBe(colors.length);
+  });
+
+  it("runs the colours outwards as the time passes, and starts each ball from a colour of its own", () => {
+    const before = pulseBands(40, 1200, colors);
+    const after = pulseBands(40, 1260, colors);
+    for (let i = 1; i < before.length; i++) expect(after[i - 1].color).toBe(before[i].color);
+    expect(pulseBands(40, 1210, colors)).toEqual(before);
+    expect(pulseBands(40, 1200, colors, 1)).not.toEqual(before);
+  });
+});
+
+describe("shadesOf", () => {
+  it("gives a colour from a light shade to a dark one, all of the same hue", () => {
+    const shades = shadesOf("#ff8000");
+    expect(shades).toHaveLength(6);
+    expect(shades[1]).toBe("rgb(255, 128, 0)");
+    expect(shades[0]).toBe("rgb(255, 172, 89)");
+    expect(shades[5]).toBe("rgb(56, 28, 0)");
+    expect(new Set(shades).size).toBe(6);
   });
 });

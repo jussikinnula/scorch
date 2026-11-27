@@ -13,6 +13,8 @@ export const TURRET_LENGTH = 18;
 
 /** How far from the edges of the field the tanks are at least, in pixels. */
 const EDGE = 40;
+/** How far from the middle of a tank its shield is, in pixels: the ring it is drawn as, and where a projectile bounces off one that deflects. */
+export const SHIELD_RADIUS = Math.round(TANK_WIDTH * 0.9);
 /** The aim of a new tank: up and towards the middle of the field, at half power. */
 const START_ANGLE = 60;
 const START_POWER = MAX_POWER / 2;

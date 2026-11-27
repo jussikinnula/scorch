@@ -72,10 +72,17 @@ export function useFieldView(api: Api, room: string) {
       action.current.shots = message.shots;
       action.current.at = performance.now();
       setFlying(message.shots.length);
+    } else if (message.type === "beam") {
+      const { x1, y1, x2, y2 } = message;
+      action.current.beams.push({ x1, y1, x2, y2, at: performance.now() });
+      wentOff.current++;
+      effects.zap();
     } else if (message.type === "burn") {
       // What still spreads is told again and again: the latest telling is all of it
       const { id, x, depths, weapon } = message;
       wentOff.current++;
+      // The fire is heard once, when it starts: what is told after that is the same fire spreading
+      if (!action.current.burns.some((burn) => burn.id === id)) effects.burn(weapon === "hot-napalm");
       const burns = action.current.burns.filter((burn) => burn.id !== id);
       action.current.burns = [...burns, { id, x, depths, weapon, at: performance.now() }];
     } else if (message.type === "explode") {
@@ -84,7 +91,9 @@ export function useFieldView(api: Api, room: string) {
       wentOff.current++;
       // A rumble for what explodes, by its size; a click for what only digs, fills or flashes
       const sound = explosionSound(weapon, radius);
-      if (sound === "explosion") effects.explode(radius);
+      if (sound === "nuke") effects.nuke(radius);
+      else if (sound === "plasma") effects.plasma(radius);
+      else if (sound === "explosion") effects.explode(radius);
       else effects.click();
     } else if (message.type === "terrain") {
       const { changes, tanks } = message;

@@ -36,7 +36,11 @@ describe("the sounds of the field", () => {
 
   it("rumble for what explodes and click for what does not", () => {
     expect(explosionSound("missile", 40)).toBe("explosion");
-    expect(explosionSound("nuke", 150)).toBe("explosion");
+    // The nuclear weapons and the Plasma Blast have sounds of their own
+    expect(explosionSound("nuke", 150)).toBe("nuke");
+    expect(explosionSound("baby-nuke", 80)).toBe("nuke");
+    expect(explosionSound("plasma-blast", 150)).toBe("plasma");
+    expect(explosionSound("heavy-roller", 90)).toBe("explosion");
     expect(explosionSound("funky-bomb", 40)).toBe("explosion");
     expect(explosionSound("sandhog", 24)).toBe("explosion");
     // The flash where a sandhog starts to dig, dirt, riot weapons and diggers

@@ -49,6 +49,59 @@ export class Effects {
     this.tone(context, out, "sine", 110 - 50 * size, 30, now, time * 0.8, 0.8);
   }
 
+  /**
+   * A nuclear weapon goes off: a sharp crack, then a deep roar that rolls on for seconds. The larger
+   * the weapon, the deeper and the longer: a Baby Nuke is a small one of these, a Nuke a large one.
+   */
+  nuke(radius: number) {
+    const audio = this.audio();
+    if (!audio) return;
+    const { context, out } = audio;
+    const now = context.currentTime;
+    const size = Math.min(1, Math.max(0, (radius - 60) / 100));
+    const time = 1.8 + 1.8 * size;
+    // The crack of the flash
+    this.rumble(context, out, 6000, 1200, now, 0.12, 0.8);
+    // The roar: noise that grows dull slowly, over a tone that sinks below hearing
+    this.rumble(context, out, 900 - 300 * size, 50, now + 0.05, time, 1);
+    this.tone(context, out, "sine", 70 - 20 * size, 22, now + 0.05, time, 1);
+    // It rolls: a second, quieter wave comes after the first
+    this.rumble(context, out, 400, 60, now + 0.5 + 0.3 * size, time * 0.8, 0.5);
+  }
+
+  /** A Plasma Blast: a rising hum of energy that breaks into a crackle. */
+  plasma(radius: number) {
+    const audio = this.audio();
+    if (!audio) return;
+    const { context, out } = audio;
+    const now = context.currentTime;
+    const time = 0.5 + Math.min(1, radius / 150) * 0.6;
+    this.tone(context, out, "sawtooth", 90, 520, now, time, 0.35);
+    this.tone(context, out, "square", 183, 1040, now, time, 0.12);
+    this.crackle(context, out, now + time * 0.4, time * 0.9, 0.5);
+  }
+
+  /** Napalm burns: the roar and the crackle of flames, for about as long as they are shown. */
+  burn(hot: boolean) {
+    const audio = this.audio();
+    if (!audio) return;
+    const { context, out } = audio;
+    const now = context.currentTime;
+    const time = hot ? 4 : 3;
+    // The whoosh as it catches fire, then the low roar of the flames with crackles on top
+    this.rumble(context, out, 2500, 500, now, 0.5, hot ? 0.6 : 0.45);
+    this.rumble(context, out, hot ? 700 : 500, 200, now + 0.1, time, hot ? 0.5 : 0.35);
+    this.crackle(context, out, now + 0.2, time - 0.4, hot ? 0.5 : 0.35);
+  }
+
+  /** A beam: a short tone that falls from high to low. */
+  zap() {
+    const audio = this.audio();
+    if (!audio) return;
+    const { context, out } = audio;
+    this.tone(context, out, "sawtooth", 1800, 220, context.currentTime, 0.3, 0.35);
+  }
+
   /** Something lands without exploding: a small click. */
   click() {
     const audio = this.audio();
@@ -107,6 +160,27 @@ export class Effects {
     oscillator.connect(gain).connect(out);
     oscillator.start(at);
     oscillator.stop(at + time + 0.02);
+  }
+
+  /** A crackle: many tiny bursts of bright noise at uneven moments, thinning out towards the end. */
+  private crackle(context: AudioContext, out: AudioNode, at: number, time: number, volume: number) {
+    if (!this.noise) return;
+    const filter = context.createBiquadFilter();
+    filter.type = "highpass";
+    filter.frequency.value = 1800;
+    filter.connect(out);
+    for (let moment = 0; moment < time; moment += 0.03 + Math.random() * 0.09) {
+      const source = context.createBufferSource();
+      source.buffer = this.noise;
+      const gain = context.createGain();
+      const start = at + moment;
+      const loud = volume * (0.3 + 0.7 * Math.random()) * (1 - moment / time);
+      gain.gain.setValueAtTime(loud, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.025);
+      source.connect(gain).connect(filter);
+      source.start(start, Math.random() * 0.9);
+      source.stop(start + 0.04);
+    }
   }
 
   /** Noise through a filter that closes: bright at first, then dull, dying away. */

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import { FieldState, PlayerInfo, ShotState, SHOTS_INTERVAL, TankState } from "../../shared/protocol";
-import { FIELD_WIDTH, TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "../../shared/sim/field";
+import { FIELD_WIDTH, SHIELD_RADIUS, TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "../../shared/sim/field";
 import { groundAt, Terrain } from "../../shared/sim/terrain";
 import { findWeapon, WeaponKind } from "../../shared/weapons";
 import { playerColor } from "../colors";
@@ -18,6 +18,8 @@ export interface Action {
   /** When the latest ones were told, on the clock of performance.now(). */
   at: number;
   explosions: { x: number; y: number; radius: number; weapon: string; part?: number; at: number }[];
+  /** The beams that are shown right now: from where to where, and since when. */
+  beams: { x1: number; y1: number; x2: number; y2: number; at: number }[];
   /**
    * What burns on the ground, by its id: how deep it lies on each column from x to the right, and
    * when it was last told: it burns on for a while after that.
@@ -48,6 +50,7 @@ export const noAction = (): Action => ({
   at: 0,
   explosions: [],
   burns: [],
+  beams: [],
   traces: new Map()
 });
 
@@ -125,6 +128,13 @@ function drawBackground(field: FieldState, width: number, height: number, layout
     drawColumn(field.terrain[field.terrain.length - 1], left + field.width * scale, width);
   }
   field.terrain.forEach((column, x) => drawColumn(column, left + x * scale, left + (x + 1) * scale));
+  // What is beside the field is not a part of it: it is in the dark, so that the edges of the field show
+  if (left > 0) {
+    const right = Math.round(left + field.width * scale);
+    context.fillStyle = "rgba(0, 0, 0, 0.6)";
+    context.fillRect(0, 0, Math.round(left), height);
+    context.fillRect(right, 0, width - right, height);
+  }
   return canvas;
 }
 
@@ -173,11 +183,15 @@ function drawTanks(
     if (tank.shield > 0) {
       // A shield is a ring around the tank: white when whole, and the darker a grey the less of it is left, as in the original
       const shade = shieldShade(tank.shield, tank.shieldMax);
-      context.strokeStyle = `rgb(${shade}, ${shade}, ${shade})`;
-      context.fillStyle = `rgba(${shade}, ${shade}, ${shade}, 0.12)`;
+      // A shield that deflects is purple, and as much darker when it is worn
+      const [red, green, blue] = tank.deflects
+        ? [0.78, 0.36, 1].map((part) => Math.round(shade * part))
+        : [shade, shade, shade];
+      context.strokeStyle = `rgb(${red}, ${green}, ${blue})`;
+      context.fillStyle = `rgba(${red}, ${green}, ${blue}, 0.14)`;
       context.lineWidth = 2;
       context.beginPath();
-      context.arc(tank.x, tank.y - TANK_HEIGHT / 2, TANK_WIDTH * 0.9, 0, 2 * Math.PI);
+      context.arc(tank.x, tank.y - TANK_HEIGHT / 2, SHIELD_RADIUS, 0, 2 * Math.PI);
       context.fill();
       context.stroke();
     }
@@ -294,8 +308,120 @@ export function shieldShade(shield: number, shieldMax: number) {
   return Math.round(50 + 205 * left);
 }
 
-/** How long an explosion is shown, in milliseconds: the bigger it is, the longer. */
-const explosionTime = (radius: number) => 400 + radius * 5;
+/** The weapons whose explosion is a ball of plasma, as in the original: clouds whose colours run. */
+const PLASMA_WEAPONS = ["baby-nuke", "nuke", "plasma-blast"];
+/** The side of the picture a ball of plasma is drawn from, in its own large pixels. */
+export const PLASMA_SIZE = 96;
+/** How fast the colours of the plasma run through their round, in steps of the palette a millisecond. */
+const PLASMA_PACE = 0.1;
+
+/**
+ * The clouds of a ball of plasma: a value from 0 to 255 for each pixel of the picture, row by row.
+ * Clouds of four sizes on top of each other, the same every time. As in the original, the picture
+ * itself never changes: the plasma moves because its colours do.
+ */
+export function plasmaClouds() {
+  const clouds = new Uint8Array(PLASMA_SIZE * PLASMA_SIZE);
+  const smooth = (t: number) => t * t * (3 - 2 * t);
+  /** A value that is by chance at the corners of squares of a size, and changes smoothly between them. */
+  const cloud = (x: number, y: number, size: number, seed: number) => {
+    const [column, row] = [Math.floor(x / size), Math.floor(y / size)];
+    const [u, v] = [smooth(x / size - column), smooth(y / size - row)];
+    const corner = (dx: number, dy: number) => chance((column + dx) * 37.3 + (row + dy) * 91.7 + seed);
+    const top = corner(0, 0) + (corner(1, 0) - corner(0, 0)) * u;
+    const bottom = corner(0, 1) + (corner(1, 1) - corner(0, 1)) * u;
+    return top + (bottom - top) * v;
+  };
+  for (let y = 0; y < PLASMA_SIZE; y++) {
+    for (let x = 0; x < PLASMA_SIZE; x++) {
+      const value =
+        (cloud(x, y, 32, 1) * 4 + cloud(x, y, 16, 2) * 2 + cloud(x, y, 8, 3) + cloud(x, y, 4, 4) * 0.5) / 7.5;
+      clouds[y * PLASMA_SIZE + x] = Math.round(value * 255);
+    }
+  }
+  return clouds;
+}
+
+/**
+ * The colour of a value of the clouds at a moment: the palette of the plasma, which goes from black
+ * through dark red to a bright red and back, three times over the values. The palette turns as the
+ * time passes, so black veins and bright patches wander through the clouds.
+ */
+export function plasmaColor(value: number, now: number): [number, number, number] {
+  const place = (((value + now * PLASMA_PACE) % 256) + 256) % 256;
+  const heat = 0.5 - 0.5 * Math.cos((place / 256) * 3 * 2 * Math.PI);
+  return [
+    Math.round(255 * Math.pow(heat, 0.55)),
+    Math.round(28 * heat * heat * heat),
+    Math.round(18 * heat * heat * heat)
+  ];
+}
+
+/** The colour of the explosion where a Funky Bomb hits: those of the bombs it throws have their own. */
+const FUNKY_COLOR = "#ff8a1f";
+
+/** The shades of a colour, from a light one to a dark one: the bands of a ball that pulses in that colour. */
+export function shadesOf(color: string) {
+  const [red, green, blue] = [1, 3, 5].map((at) => parseInt(color.slice(at, at + 2), 16));
+  // Towards white for the first, then the colour itself, then darker and darker
+  return [-0.35, 0, 0.2, 0.4, 0.6, 0.78].map((dark) => {
+    const shade = (part: number) => Math.round(dark < 0 ? part + (255 - part) * -dark : part * (1 - dark));
+    return `rgb(${shade(red)}, ${shade(green)}, ${shade(blue)})`;
+  });
+}
+
+/** How wide a band of a ball that pulses is, in pixels, and how long a colour stays in one band, in milliseconds. */
+const PULSE_BAND = 6;
+const PULSE_PACE = 60;
+
+/**
+ * The bands of a ball whose colours run outwards through it, so that it seems to pulse, as the
+ * explosions of a Funky Bomb do in the original: the outer radius of each band and its colour, from
+ * the outermost in.
+ *
+ * @param first Which of the colours is in the middle at the start: balls that go off together differ.
+ */
+export function pulseBands(radius: number, now: number, colors: string[], first = 0) {
+  const bands: { radius: number; color: string }[] = [];
+  const shift = Math.floor(now / PULSE_PACE) - first;
+  for (let band = Math.ceil(radius / PULSE_BAND); band >= 1; band--) {
+    const index = (((band - shift) % colors.length) + colors.length) % colors.length;
+    bands.push({ radius: Math.min(radius, band * PULSE_BAND), color: colors[index] });
+  }
+  return bands;
+}
+
+let cloudsOfPlasma: Uint8Array | null = null;
+let plasmaPicture: HTMLCanvasElement | null = null;
+
+/** Draws a ball of plasma: the clouds in the colours of this moment, in large pixels, cut to a circle. */
+function drawPlasma(context: CanvasRenderingContext2D, x: number, y: number, radius: number, now: number) {
+  cloudsOfPlasma ??= plasmaClouds();
+  plasmaPicture ??= Object.assign(document.createElement("canvas"), { width: PLASMA_SIZE, height: PLASMA_SIZE });
+  const picture = plasmaPicture.getContext("2d");
+  if (!picture) return;
+  // The colour of each of the 256 values right now, and then the picture from them
+  const colors = Array.from({ length: 256 }, (_, value) => plasmaColor(value, now));
+  const image = picture.createImageData(PLASMA_SIZE, PLASMA_SIZE);
+  for (let i = 0; i < cloudsOfPlasma.length; i++) {
+    const [red, green, blue] = colors[cloudsOfPlasma[i]];
+    image.data.set([red, green, blue, 255], i * 4);
+  }
+  picture.putImageData(image, 0, 0);
+  context.save();
+  context.beginPath();
+  context.arc(x, y, radius, 0, 2 * Math.PI);
+  context.clip();
+  context.imageSmoothingEnabled = false;
+  // The picture is as large as the largest ball, and the ball shows the middle of it: it does not stretch as the ball grows
+  const side = Math.max(2 * radius, 320);
+  context.drawImage(plasmaPicture, x - side / 2, y - side / 2, side, side);
+  context.restore();
+}
+
+/** How long an explosion is shown, in milliseconds: the bigger it is, the longer, and a ball of plasma for twice as long. */
+const explosionTime = (radius: number, weapon?: string) =>
+  (400 + radius * 5) * (weapon !== undefined && PLASMA_WEAPONS.includes(weapon) ? 2 : 1);
 /** The colours of what a weapon does when it goes off, from the middle outwards. */
 const EXPLOSION_COLORS: Record<WeaponKind, [string, string, string]> = {
   blast: ["#fff", "#ffe066", "#f0562a"],
@@ -308,6 +434,8 @@ const EXPLOSION_COLORS: Record<WeaponKind, [string, string, string]> = {
   charge: ["#fff", "#bfe6ff", "#5aa9e6"],
   digger: ["#fff", "#e0c080", "#8a5f31"],
   disrupter: ["#fff", "#e0c080", "#8a5f31"],
+  plasma: ["#fff", "#9af2ff", "#7a4dff"],
+  laser: ["#fff", "#ff8a8a", "#ff2a2a"],
   liquid: ["#b98a52", "#a3743f", "#8a5f31"],
   napalm: ["#fff", "#ffb347", "#e0401f"],
   sandhog: ["#fff", "#ffe066", "#f0562a"],
@@ -338,8 +466,10 @@ export function placeShots(action: Pick<Action, "shots" | "previous" | "at">, no
 }
 
 /** The colours of the bombs that a Funky Bomb throws, of their traces and of their explosions. */
-export const PART_COLORS = ["#ff4d4d", "#ffd23f", "#4dff88", "#4dd2ff", "#b266ff", "#ff7ad9"];
+export const PART_COLORS = ["#ff3030", "#ff8a1f", "#ff2fd0", "#ff5a9a", "#ffd23f", "#c040ff"];
 const partColor = (part: number) => PART_COLORS[part % PART_COLORS.length];
+/** The colour of the traces of the bombs that a weapon throws: a pale blue, as in the original. */
+const PART_TRACE_COLOR = "#9aa6ff";
 /** How long the trace of a thrown bomb is still shown after the bomb has gone off, in milliseconds. */
 const PART_TRACE_TIME = 700;
 
@@ -349,6 +479,34 @@ const PART_TRACE_TIME = 700;
  */
 export function tracePoints(trace: Pick<Trace, "points">, flying: { x: number; y: number } | undefined) {
   return flying ? [...trace.points.slice(0, -1), { x: flying.x, y: flying.y }] : trace.points;
+}
+
+/** How long a beam is shown, in milliseconds. */
+export const BEAM_TIME = 450;
+
+function drawBeams(context: CanvasRenderingContext2D, action: Action, now: number) {
+  action.beams = action.beams.filter((beam) => now - beam.at < BEAM_TIME);
+  for (const beam of action.beams) {
+    // A red glow that fades around a white line that thins
+    const left = 1 - (now - beam.at) / BEAM_TIME;
+    context.lineCap = "round";
+    context.shadowColor = "#ff2a2a";
+    context.shadowBlur = 16;
+    for (const [color, width] of [
+      ["#ff3b3b", 7],
+      ["#fff", 2.5]
+    ] as const) {
+      context.globalAlpha = left;
+      context.strokeStyle = color;
+      context.lineWidth = Math.max(1, width * left);
+      context.beginPath();
+      context.moveTo(beam.x1, beam.y1);
+      context.lineTo(beam.x2, beam.y2);
+      context.stroke();
+    }
+    context.shadowBlur = 0;
+    context.globalAlpha = 1;
+  }
 }
 
 /** How long what was spilled burns on the ground, in milliseconds. */
@@ -519,9 +677,9 @@ function drawAction(
     }
     if (trace.smoke || trace.part !== undefined) {
       // Smoke is one even line, thick and thin at once: easy to see, and what is behind it shows through.
-      // The trace of a thrown bomb is a thin line in the colour of the bomb.
+      // The trace of a thrown bomb is a thin pale line.
       if (trace.smoke) context.globalAlpha = 0.55;
-      context.strokeStyle = trace.part === undefined ? playerColor(trace.owner) : partColor(trace.part);
+      context.strokeStyle = trace.part === undefined ? playerColor(trace.owner) : PART_TRACE_COLOR;
       context.lineWidth = trace.smoke ? 5 : 2;
       context.lineCap = "round";
       context.lineJoin = "round";
@@ -570,11 +728,33 @@ function drawAction(
     context.fill();
   }
 
-  action.explosions = action.explosions.filter((explosion) => now - explosion.at < explosionTime(explosion.radius));
+  action.explosions = action.explosions.filter(
+    (explosion) => now - explosion.at < explosionTime(explosion.radius, explosion.weapon)
+  );
   for (const explosion of action.explosions) {
     // The ball of fire grows fast to its full size and then fades
-    const age = (now - explosion.at) / explosionTime(explosion.radius);
+    const age = (now - explosion.at) / explosionTime(explosion.radius, explosion.weapon);
     const radius = Math.max(1, explosion.radius * Math.min(1, age * 4));
+    if (PLASMA_WEAPONS.includes(explosion.weapon)) {
+      // A ball of plasma, as in the original: red clouds whose colours run. It fades only at the very end.
+      context.globalAlpha = Math.min(1, (1 - age) * 3);
+      drawPlasma(context, explosion.x, explosion.y, radius, now);
+      context.globalAlpha = 1;
+      continue;
+    }
+    if (findWeapon(explosion.weapon)?.kind === "funky") {
+      // The explosions of a Funky Bomb pulse: each is of one colour, whose lighter and darker shades run outwards through the ball
+      context.globalAlpha = 1 - age * age;
+      const shades = shadesOf(explosion.part === undefined ? FUNKY_COLOR : partColor(explosion.part));
+      for (const band of pulseBands(radius, now, shades, explosion.part ?? 0)) {
+        context.fillStyle = band.color;
+        context.beginPath();
+        context.arc(explosion.x, explosion.y, band.radius, 0, 2 * Math.PI);
+        context.fill();
+      }
+      context.globalAlpha = 1;
+      continue;
+    }
     const colors =
       explosion.part === undefined
         ? EXPLOSION_COLORS[findWeapon(explosion.weapon)?.kind ?? "blast"]
@@ -699,6 +879,7 @@ export default function Field({ field, players, bubbles, action, turn, boxed = f
       drawTanks(context, seen, players, turn, now);
       if (action) {
         drawBurns(context, action, field.terrain, field.height, now);
+        drawBeams(context, action, now);
         drawAction(context, action, tails.current, now);
       }
       if (bubbles) drawBubbles(context, seen, bubbles);

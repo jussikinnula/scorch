@@ -22,6 +22,10 @@
  * - liquid: liquid dirt that oozes out where it lands, flows downhill, fills holes and sets.
  * - napalm: spills where it lands and flows like a liquid, then burns: the deeper it lies at a tank,
  *   the more it takes.
+ * - plasma: is not a projectile: a burst of energy around the tank that fires it, which goes through
+ *   the dirt and damages the other tanks it reaches. It is the larger the more batteries it uses.
+ * - laser: is not a projectile: a straight beam from the turret, through the dirt and the shields,
+ *   which damages every other tank on its way. It is the stronger the more batteries it uses.
  * - disrupter: makes all the dirt that hangs in the air fall. It matters in a game with Suspend Dirt.
  * - tracer: nothing. It shows where a shot would go.
  */
@@ -38,6 +42,8 @@ export type WeaponKind =
   | "charge"
   | "liquid"
   | "napalm"
+  | "plasma"
+  | "laser"
   | "disrupter"
   | "tracer";
 
@@ -77,6 +83,22 @@ export interface Weapon {
   /** A tracer whose trace is smoke: thick, and easy to see. */
   smoke?: boolean;
 }
+
+/** The most batteries one shot of an energy weapon (Plasma Blast, Laser) uses. */
+export const MAX_CHARGE = 5;
+/** How much of the power of the shot it takes to use one battery: the power chooses how many are used. */
+export const POWER_PER_BATTERY = 200;
+
+/**
+ * How many batteries a shot of an energy weapon uses: as many as the power of the shot asks for, of
+ * those the player has. The power does nothing else for these weapons, which are not thrown.
+ */
+export function batteriesFor(power: number, owned: number) {
+  return Math.max(0, Math.min(MAX_CHARGE, owned, Math.round(power / POWER_PER_BATTERY)));
+}
+
+/** How much of what an energy weapon can do at the most it does with some batteries: two fifths with none, all with five. */
+export const chargeOf = (batteries: number) => 0.4 + (0.6 * Math.min(MAX_CHARGE, batteries)) / MAX_CHARGE;
 
 /** How many warheads a MIRV splits into. */
 export const MIRV_WARHEADS = 5;
@@ -414,6 +436,29 @@ export const WEAPONS: readonly Weapon[] = [
     armsLevel: 4,
     reload: 14,
     amount: 2500
+  },
+  {
+    id: "plasma-blast",
+    kind: "plasma",
+    name: "Plasma Blast",
+    price: 9000,
+    bundle: 5,
+    // With all the batteries it can use; 10 with none, as in the manual
+    radius: 75,
+    damage: 100,
+    armsLevel: 3,
+    reload: 10
+  },
+  {
+    id: "laser",
+    kind: "laser",
+    name: "Laser",
+    price: 5000,
+    bundle: 5,
+    radius: 0,
+    damage: 100,
+    armsLevel: 2,
+    reload: 8
   },
   {
     id: "earth-disrupter",

@@ -7,6 +7,7 @@ import AimBar from "../components/AimBar";
 import AimControl from "../components/AimControl";
 import FireControl from "../components/FireControl";
 import GearControl from "../components/GearControl";
+import LeaveButton from "../components/LeaveButton";
 import PlayerList from "../components/PlayerList";
 import SayControl from "../components/SayControl";
 import Shop from "../components/Shop";
@@ -17,6 +18,7 @@ import { Api, useApiMessages } from "../hooks/useApiConnection";
 import { useBubbles } from "../hooks/useBubbles";
 import { useCountdown } from "../hooks/useCountdown";
 import { useThrottled } from "../hooks/useThrottled";
+import { leaveNotice } from "../notice";
 import { navigate } from "../routes";
 import { trackOf } from "../sound/music";
 import { useMusic } from "../sound/sound";
@@ -89,6 +91,11 @@ export default function Controller({ api, room, online = false, field }: Props) 
   const stop = (reason: Problem, forget = true) => {
     stopped.current = true;
     if (forget) savePlayerKey(room, null);
+    // An online game that is gone leaves nothing to look at: back to where the games are chosen
+    if (online && reason === "no-room") {
+      leaveNotice("That game has ended.");
+      return navigate({ view: "online" }, true);
+    }
     setProblem(reason);
   };
 
@@ -282,13 +289,18 @@ export default function Controller({ api, room, online = false, field }: Props) 
             </p>
           )}
         </div>
-        {field}
-        {result && <Standings players={state.players} self={me.id} />}
+        {/* The standings of a round that is over are laid over the field: nothing under it moves */}
+        <div className="online__field">
+          {field}
+          {result && (
+            <div className="online__result">
+              <Standings players={state.players} self={me.id} />
+            </div>
+          )}
+        </div>
         <div className="online__rest">
           <SayControl onSay={(text) => api.send({ type: "say", text })} />
-          <button className="button controller__leave" onClick={leave}>
-            Leave the game
-          </button>
+          <LeaveButton onLeave={leave} />
           <SoundControls />
         </div>
       </section>
@@ -414,9 +426,7 @@ export default function Controller({ api, room, online = false, field }: Props) 
           <Standings players={state.players} self={me.id} />
         </>
       )}
-      <button className="button controller__leave" onClick={leave}>
-        Leave the game
-      </button>
+      <LeaveButton onLeave={leave} />
     </section>
   );
 }

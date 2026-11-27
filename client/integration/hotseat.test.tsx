@@ -364,7 +364,14 @@ describe("a hotseat game", () => {
 
     it("remembers the name for the next game", async () => {
       await joinAs("Ann");
+      // Leaving is asked about first: the player can change its mind
       fireEvent.click(screen.getByRole("button", { name: "Leave the game" }));
+      expect(screen.getByRole("alertdialog", { name: "Leave the game?" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(parseRoute(window.location.hash)).toEqual({ view: "controller", room });
+      fireEvent.click(screen.getByRole("button", { name: "Leave the game" }));
+      fireEvent.click(screen.getByRole("button", { name: "Leave" }));
       await vi.waitFor(() => expect(parseRoute(window.location.hash)).toEqual({ view: "home" }), FIND);
       cleanup();
 
@@ -661,6 +668,7 @@ describe("a hotseat game", () => {
     it("leaves the game", async () => {
       await joinAs("Ann");
       fireEvent.click(screen.getByRole("button", { name: "Leave the game" }));
+      fireEvent.click(screen.getByRole("button", { name: "Leave" }));
 
       await vi.waitFor(() => expect(parseRoute(window.location.hash)).toEqual({ view: "home" }), FIND);
       expect(loadPlayerKey(room)).toBeNull();
@@ -840,6 +848,21 @@ describe("a hotseat game", () => {
       // The other player is told of the shot too: it shows the field as well
       expect((await bob.next("shots")).shots[0].owner).toBe(0);
       expect((await bob.next("field")).field.tanks).toHaveLength(2);
+    });
+
+    it("returns to the lobby of the online games when the game is closed because nobody joined it in time", async () => {
+      await backend.stop();
+      backend = await startBackend({
+        allowedOrigins: [window.location.origin, "http://localhost"],
+        rooms: { seed: 1, maxWind: 0, lobbyTime: 1500 }
+      });
+      await startOnline("Those with the link");
+      expect(window.location.hash).toMatch(/^#\/play\//);
+      // Nobody joins: the server closes the game, and the page does not stay on what is gone
+      await vi.waitFor(() => expect(window.location.hash).toBe("#/online"), { timeout: 6000 });
+      expect(await screen.findByRole("heading", { name: "Online games" }, FIND)).toBeInTheDocument();
+      expect(screen.getByText("That game has ended.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Start the game" })).toBeNull();
     });
 
     it("lists a public game in the lobby of others, and not a private one", async () => {

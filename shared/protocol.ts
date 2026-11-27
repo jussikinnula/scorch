@@ -20,7 +20,7 @@ export const SOCKET_PATH = "/ws";
  * A client tells its version in the address it connects to (see socketPath), the server in its
  * greeting. The test of this file fails when the messages change and the version does not.
  */
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 
 /** The name of the part of the address of the WebSocket API where a client tells its version. */
 export const PROTOCOL_PARAMETER = "protocol";
@@ -245,6 +245,8 @@ export interface TankState {
    */
   shield: number;
   shieldMax: number;
+  /** Whether the shield the tank has throws back the projectiles of others (a Force Shield). Not there when it does not. */
+  deflects?: boolean;
 }
 
 /** A projectile in the air, as it is shown. */
@@ -436,6 +438,8 @@ export type ServerMessage =
    * same id while it spreads: each telling is all of it. It burns for a moment after the last one.
    */
   | { type: "burn"; id: number; x: number; depths: number[]; weapon: string }
+  /** To those who show the playing field: a beam went from one point to another (Laser). It is shown for a moment. */
+  | { type: "beam"; x1: number; y1: number; x2: number; y2: number; weapon: string }
   /** To those who show the playing field: the dirt changed, and the tanks are as they are after it: where, and with what energy. */
   | { type: "terrain"; changes: TerrainChange[]; tanks: TankState[] }
   /** To those who show the playing field, and to the one who said it: a speech bubble. */
