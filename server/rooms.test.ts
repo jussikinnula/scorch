@@ -1913,6 +1913,24 @@ describe("Rooms", () => {
       expect(last(screen, "terrain").tanks[1].deflects).toBeUndefined();
     });
 
+    it("puts up a super mag in place of a force shield: the tank repels and is proof against lasers, and deflects no more", () => {
+      const { screen, players } = startGame(200000);
+      const [ann] = players;
+      rooms.handle(ann, { type: "buy", weapon: "force-shield" });
+      rooms.handle(ann, { type: "buy", weapon: "super-mag" });
+      rooms.handle(ann, { type: "buy", weapon: "mag-deflector" });
+      for (const player of players) rooms.handle(player, { type: "ready" });
+      rooms.handle(ann, { type: "use", item: "force-shield" });
+      rooms.handle(ann, { type: "use", item: "super-mag" });
+      const tank = last(screen, "terrain").tanks[0];
+      expect(tank).toMatchObject({ shield: 200, shieldMax: 200, repels: 2.6, laserproof: true });
+      expect(tank.deflects).toBeUndefined();
+      rooms.handle(ann, { type: "use", item: "mag-deflector" });
+      const weak = last(screen, "terrain").tanks[0];
+      expect(weak).toMatchObject({ shield: 50, shieldMax: 50, repels: 1.6 });
+      expect(weak.laserproof).toBeUndefined();
+    });
+
     it("sells accessories beside the weapons, and buys them back", () => {
       const { screen, players } = startGame(100000);
       const [ann] = players;
@@ -2332,6 +2350,54 @@ describe("Rooms", () => {
       // Alone in the new lobby: the room is closed when its time is out
       vi.advanceTimersByTime(300000);
       expect(rooms.size).toBe(0);
+    });
+
+    it("keeps the result of a game as it ended when a player leaves after it: the one who is left has not won by that", () => {
+      const ann = createOnline("Ann", false, { turns: "live", rounds: 1 });
+      const bob = joinOnline(ann, "Bob");
+      const cid = joinOnline(ann, "Cid");
+      rooms.handle(ann, { type: "start" });
+      // Bob and Cid go during the round, and Ann wins it and the game
+      rooms.handle(bob, { type: "leave" });
+      rooms.handle(cid, { type: "leave" });
+      vi.advanceTimersByTime(5000);
+      expect(state(ann)).toMatchObject({ phase: "finished", players: [{ name: "Ann", wins: 1 }] });
+
+      // A game of two that ended: the winner leaves, and the other still sees who won
+      const dee = createOnline("Dee", false, { turns: "live", rounds: 1 });
+      const eve = joinOnline(dee, "Eve");
+      const fay = joinOnline(dee, "Fay");
+      rooms.handle(dee, { type: "start" });
+      rooms.handle(fay, { type: "leave" });
+      const tanks = last(dee, "field").field.tanks;
+      expect(tanks).toHaveLength(2);
+      // Eve destroys herself: Dee wins the only round
+      rooms.handle(eve, { type: "weapon", weapon: "baby-nuke" });
+      rooms.handle(eve, { type: "aim", angle: 90, power: 100 });
+      rooms.handle(eve, { type: "fire" });
+      vi.advanceTimersByTime(10000);
+      expect(state(eve)).toMatchObject({ phase: "finished" });
+      const result = state(eve).players.map(({ name, wins }) => ({ name, wins }));
+      expect(result).toEqual([
+        { name: "Dee", wins: 1 },
+        { name: "Eve", wins: 0 }
+      ]);
+
+      rooms.handle(dee, { type: "leave" });
+      expect(state(eve).players.map(({ name, wins, connected }) => ({ name, wins, connected }))).toEqual([
+        { name: "Dee", wins: 1, connected: false },
+        { name: "Eve", wins: 0, connected: true }
+      ]);
+      // Eve is the host now, and the one who left is not in the next game, nor can it come back as that player
+      expect(state(eve).host).toBe(1);
+      rooms.handle(eve, { type: "lobby" });
+      expect(state(eve)).toMatchObject({ phase: "lobby", players: [{ name: "Eve", wins: 0 }] });
+      expect(state(eve).players).toHaveLength(1);
+
+      // When the last one leaves a game that is over, the room is gone
+      const size = rooms.size;
+      rooms.handle(ann, { type: "leave" });
+      expect(rooms.size).toBe(size - 1);
     });
 
     it("lets one address have one online room at a time", () => {

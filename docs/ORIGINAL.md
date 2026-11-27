@@ -287,7 +287,7 @@ The manual does not give these, and the simulation needs them. They are measured
 
 - The Basic and Greedy scoring, and how the inventory is depreciated in Greedy.
 - The price of Auto Defense by the rounds left and the interest rate.
-- How long each shield lasts, and how the shields deflect. SCORCH has the Shield and the Heavy Shield with strengths of its own (100 and 200 of damage), and they only take damage. The Force Shield (150) also throws back the projectiles of others, at a cost of 30 to itself for each: how the original deflects, and how much it costs the shield, is not measured. The Mag Deflector and the Super Mag are not in the game yet.
+- How long each shield lasts, and how the shields deflect. SCORCH has the Shield and the Heavy Shield with strengths of its own (100 and 200 of damage), and they only take damage. The Force Shield (150) also throws back the projectiles of others, at a cost of 30 to itself for each: how the original deflects, and how much it costs the shield, is not measured. The Mag Deflector (50) and the Super Mag (200) push the projectiles above the tank upwards and onwards, and the Super Mag stops lasers: how hard and how far they push, and what it costs them, are SCORCH's own values.
 - The fuel a slope takes, and the steepest slope that can be climbed.
 - The damage of Napalm by the depth of the pool, and of the energy weapons by the batteries used.
 

@@ -110,6 +110,11 @@ interface Player<Member> {
   weapons: Record<string, number>;
   /** The id of the weapon the tank fires next. */
   weapon: string;
+  /**
+   * The player left after the game had finished: it is still among the players, so that the result
+   * of the game stays as it was, until the room goes back to the lobby.
+   */
+  gone?: boolean;
 }
 
 interface Room<Member> {
@@ -543,7 +548,7 @@ class Rooms<Member> {
   private resume(member: Member, id: string, playerKey: string) {
     const room = this.rooms.get(id);
     if (!room) return this.refuse(member, "no-room", "resume");
-    const player = room.players.find((candidate) => candidate.key === playerKey);
+    const player = room.players.find((candidate) => candidate.key === playerKey && !candidate.gone);
     if (!player) return this.refuse(member, "no-session", "resume");
     this.returnPlayer(member, room, player);
   }
@@ -551,7 +556,7 @@ class Rooms<Member> {
   private rejoin(member: Member, token: string, playerKey: string) {
     const room = this.tokens.get(token);
     if (!room) return this.refuse(member, "bad-token", "rejoin");
-    const player = room.players.find((candidate) => candidate.key === playerKey);
+    const player = room.players.find((candidate) => candidate.key === playerKey && !candidate.gone);
     if (!player) return this.refuse(member, "no-session", "rejoin");
     this.returnPlayer(member, room, player);
   }
@@ -599,7 +604,7 @@ class Rooms<Member> {
   private passHost(room: Room<Member>) {
     const old = room.players.find((player) => player.id === room.hostId);
     if (old?.member) return;
-    const others = room.players.filter((player) => player !== old).sort((a, b) => a.joined - b.joined);
+    const others = room.players.filter((player) => player !== old && !player.gone).sort((a, b) => a.joined - b.joined);
     const next = others.find((player) => player.member) ?? (old ? null : others[0]);
     if (!next) return;
     room.hostId = next.id;
@@ -666,6 +671,8 @@ class Rooms<Member> {
     if (room.phase !== "finished") return this.refuse(member, "wrong-phase", "lobby");
 
     room.phase = "lobby";
+    // Those who left after the game ended were kept for its result: they are not in the next game
+    room.players = room.players.filter((player) => !player.gone);
     room.field = null;
     room.round = 0;
     this.setTurn(room, null);
@@ -911,8 +918,13 @@ class Rooms<Member> {
     } else {
       tank.shield = accessory.strength;
       tank.shieldMax = accessory.strength;
+      // What the shield does beside taking damage is that of the new one only
+      delete tank.deflects;
+      delete tank.repels;
+      delete tank.laserproof;
       if (accessory.deflects) tank.deflects = true;
-      else delete tank.deflects;
+      if (accessory.repels) tank.repels = accessory.repels;
+      if (accessory.laserproof) tank.laserproof = true;
     }
     player.weapons[id] -= 1;
     if (player.weapons[id] <= 0) delete player.weapons[id];
@@ -1124,6 +1136,20 @@ class Rooms<Member> {
   }
 
   private removePlayer(room: Room<Member>, player: Player<Member>) {
+    if (room.phase === "finished") {
+      // A game that is over stays as it ended: the one who leaves is not taken from its result
+      player.gone = true;
+      player.member = null;
+      if (room.mode === "online") {
+        if (room.players.every((candidate) => candidate.gone)) return this.remove(room);
+        if (player.id === room.hostId) {
+          if (room.hostTimer) clearTimeout(room.hostTimer);
+          room.hostTimer = null;
+          this.passHost(room);
+        }
+      }
+      return this.announce(room);
+    }
     room.players = room.players.filter((candidate) => candidate !== player);
     if (room.mode === "online") {
       // An online game goes on to its end with those who are left; when the last one has gone, so has the room

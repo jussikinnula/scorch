@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { DEFLECT_COST } from "../accessories";
+import { DEFLECT_COST, REPEL_COST, REPEL_WIDTH } from "../accessories";
 import { FieldState, TankState } from "../protocol";
 import { FIELD_HEIGHT, FIELD_WIDTH, TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "./field";
 import {
@@ -1416,6 +1416,90 @@ describe("the weapons of the fourth phase", () => {
       const plain = flatField(400, [{ x: 100 }, { x: 700, shield: 100, shieldMax: 100 }]);
       const { events } = all(plain, { id: 1, owner: 0, weapon: "tracer", x: 700, y: 100, vx: 0, vy: 0 });
       expect(events.some((event) => event.event === "deflect")).toBe(false);
+    });
+  });
+
+  describe("against a shield that repels", () => {
+    const magnet = (repels: number | undefined, more: Partial<TankState> = {}): FieldState =>
+      flatField(400, [{ x: 100 }, { x: 700, shield: repels ? 200 : 0, shieldMax: repels ? 200 : 0, repels, ...more }]);
+    /** Where a projectile that falls from above ends up, and what happened on its way. */
+    const dropped = (field: FieldState, x: number, weapon = "tracer") => {
+      let shots: Shot[] = [{ id: 1, owner: 0, weapon, x, y: 100, vx: 0, vy: 0 }];
+      const events = [];
+      let last = shots[0];
+      for (let step = 0; shots.length > 0 && step < 100000; step++) {
+        const result = stepShots(field, shots);
+        events.push(...result.events);
+        shots = result.shots;
+        if (shots[0]) last = shots[0];
+      }
+      return { events, last };
+    };
+
+    /** Where a missile fired from the left at the tank lands: its power is the one that hits the tank with no shield. */
+    const lobbed = (repels: number | undefined) => {
+      const field = flatField(500, [
+        { x: 200, angle: 45, power: 382 },
+        { x: 800, shield: repels ? 200 : 0, shieldMax: repels ? 200 : 0, repels }
+      ]);
+      let shots = [launch(field.tanks[0], 1, "tracer")];
+      const events = [];
+      let last = shots[0];
+      for (let step = 0; shots.length > 0 && step < 100000; step++) {
+        const result = stepShots(field, shots);
+        events.push(...result.events);
+        shots = result.shots;
+        if (shots[0]) last = shots[0];
+      }
+      return { field, events, x: last.x };
+    };
+
+    it("lift a projectile that comes down on the tank over it: it lands beyond, and the shield pays for it once", () => {
+      expect(Math.abs(lobbed(undefined).x - 800)).toBeLessThan(TANK_WIDTH / 2);
+
+      const strong = lobbed(2.6);
+      expect(strong.x).toBeGreaterThan(800 + 80);
+      expect(strong.events.filter((event) => event.event === "deflect")).toHaveLength(1);
+      expect(strong.field.tanks[1].shield).toBe(200 - REPEL_COST);
+      expect(strong.field.tanks[1].repels).toBe(2.6);
+
+      // A weak one lifts it less far
+      const weak = lobbed(1.6);
+      expect(weak.x).toBeGreaterThan(800 + TANK_WIDTH);
+      expect(weak.x).toBeLessThan(strong.x);
+    });
+
+    it("push what comes straight down to a side, and nothing that is out of its reach or the tank's own", () => {
+      const down = dropped(magnet(2.6), 700);
+      expect(Math.abs(down.last.x - 700)).toBeGreaterThan(TANK_WIDTH);
+
+      const far = magnet(2.6);
+      expect(dropped(far, 700 + REPEL_WIDTH + 20).events.some((event) => event.event === "deflect")).toBe(false);
+      expect(far.tanks[1].shield).toBe(200);
+
+      const own = magnet(2.6, { angle: 90, power: 300 });
+      let shots = [launch(own.tanks[1], 1, "tracer")];
+      const events = [];
+      for (let step = 0; shots.length > 0 && step < 100000; step++) {
+        const result = stepShots(own, shots);
+        events.push(...result.events);
+        shots = result.shots;
+      }
+      expect(events.some((event) => event.event === "deflect")).toBe(false);
+      expect(own.tanks[1].shield).toBe(200);
+    });
+
+    it("stop a laser with a shield that is proof against it, and not with one that is not", () => {
+      const beam = (laserproof: boolean | undefined) => {
+        const field = flatField(400, [
+          { x: 200, angle: 0 },
+          { x: 600, shield: 200, shieldMax: 200, laserproof }
+        ]);
+        stepShots(field, [launch(field.tanks[0], 1, "laser", 5)]);
+        return field.tanks[1];
+      };
+      expect(beam(undefined).energy).toBe(0);
+      expect(beam(true)).toMatchObject({ energy: 100, shield: 200 });
     });
   });
 });
