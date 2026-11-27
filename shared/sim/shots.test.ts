@@ -325,17 +325,34 @@ describe("the weapons in the air", () => {
     };
     expect(beside("baby-missile")).toBe(100);
     expect(beside("missile")).toBe(75);
-    expect(beside("nuke")).toBe(20);
+    // A Nuke also takes the ground from under the tank, and the fall takes the rest
+    expect(beside("nuke")).toBe(0);
   });
 
-  it("destroy dirt with a riot bomb, without damaging a tank", () => {
-    const field = flatField(600, [{ x: 100 }, { x: 700 }]);
-    const { events } = drop(field, "riot-bomb", 705);
+  it("destroy dirt with a riot bomb, which does not harm a tank but lets it fall", () => {
+    // Far enough to the side that the ground under the tank stays
+    const safe = flatField(600, [{ x: 100 }, { x: 700 }]);
+    const { events } = drop(safe, "riot-bomb", 700 + TANK_WIDTH / 2 + 62);
     expect(events[0]).toMatchObject({ event: "explode", radius: 60, weapon: "riot-bomb" });
     expect(events.filter((event) => event.event === "damage")).toEqual([]);
-    expect(field.tanks[1].energy).toBe(100);
-    // The ground went from under the tank, and the tank with it
+    expect(safe.tanks[1]).toMatchObject({ y: 600, energy: 100 });
+
+    // Right beside the tank the ground goes from under it: it falls, and the fall hurts
+    const field = flatField(600, [{ x: 100 }, { x: 700 }]);
+    const fallen = drop(field, "riot-bomb", 705).events.filter((event) => event.event === "damage");
+    const fall = field.tanks[1].y - 600;
+    expect(fall).toBeGreaterThan(0);
+    // A point of energy for each pixel of the original, which is two of ours
+    expect(fallen).toEqual([
+      { event: "damage", id: 1, energy: 100 - Math.floor(fall / 2), amount: Math.floor(fall / 2), by: 0 }
+    ]);
+  });
+
+  it("let a wreck fall without telling of damage, and do not lift a tank with the ground", () => {
+    const field = flatField(600, [{ x: 100 }, { x: 700, energy: 0 }]);
+    const { events } = drop(field, "riot-bomb", 705);
     expect(field.tanks[1].y).toBeGreaterThan(600);
+    expect(events.filter((event) => event.event === "damage")).toEqual([]);
   });
 
   it("bury a tank with a dirt weapon: the tank stays where it is, unharmed", () => {

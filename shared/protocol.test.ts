@@ -20,7 +20,16 @@ describe("isClientMessage", () => {
       { type: "leave" },
       {
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       },
       { type: "lobby" },
       { type: "kick", id: 0 },
@@ -58,25 +67,70 @@ describe("isClientMessage", () => {
       { type: "settings" },
       {
         type: "settings",
-        settings: { maxPlayers: 1, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 1,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       },
       {
         type: "settings",
-        settings: { maxPlayers: 11, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 11,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       },
       { type: "settings", settings: { maxPlayers: 8 } },
       { type: "settings", settings: { maxPlayers: 8, rounds: 10 } },
       {
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 10, turns: "fast", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 10,
+          turns: "fast",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       },
       {
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 0, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 0,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       },
       {
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 1001, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 1001,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       },
       { type: "kick" },
       { type: "kick", id: -1 },
@@ -112,17 +166,53 @@ describe("isClientMessage", () => {
 describe("isRoomSettings", () => {
   it("accepts 2-10 players and 1-1000 rounds", () => {
     expect(
-      isRoomSettings({ maxPlayers: 2, rounds: 1, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 })
+      isRoomSettings({
+        maxPlayers: 2,
+        rounds: 1,
+        turns: "live",
+        maxWind: 0,
+        cash: 0,
+        interest: 5,
+        armsLevel: 4,
+        traces: false
+      })
     ).toBe(true);
     expect(
-      isRoomSettings({ maxPlayers: 2, rounds: 1, turns: "classic", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 })
+      isRoomSettings({
+        maxPlayers: 2,
+        rounds: 1,
+        turns: "classic",
+        maxWind: 0,
+        cash: 0,
+        interest: 5,
+        armsLevel: 4,
+        traces: false
+      })
     ).toBe(true);
     expect(isRoomSettings({ maxPlayers: 2, rounds: 1 })).toBe(false);
     expect(
-      isRoomSettings({ maxPlayers: 10, rounds: 1000, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 })
+      isRoomSettings({
+        maxPlayers: 10,
+        rounds: 1000,
+        turns: "live",
+        maxWind: 0,
+        cash: 0,
+        interest: 5,
+        armsLevel: 4,
+        traces: false
+      })
     ).toBe(true);
     expect(
-      isRoomSettings({ maxPlayers: 8, rounds: 10, turns: "live", maxWind: 500, cash: 0, interest: 5, armsLevel: 4 })
+      isRoomSettings({
+        maxPlayers: 8,
+        rounds: 10,
+        turns: "live",
+        maxWind: 500,
+        cash: 0,
+        interest: 5,
+        armsLevel: 4,
+        traces: false
+      })
     ).toBe(true);
     for (const maxWind of [undefined, -1, 501, 0.5, "200"]) {
       expect(isRoomSettings({ maxPlayers: 8, rounds: 10, turns: "live", maxWind })).toBe(false);
@@ -131,10 +221,28 @@ describe("isRoomSettings", () => {
       expect(isRoomSettings({ maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash })).toBe(false);
     }
     expect(
-      isRoomSettings({ maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 1000000, interest: 5, armsLevel: 4 })
+      isRoomSettings({
+        maxPlayers: 8,
+        rounds: 10,
+        turns: "live",
+        maxWind: 0,
+        cash: 1000000,
+        interest: 5,
+        armsLevel: 4,
+        traces: false
+      })
     ).toBe(true);
     expect(
-      isRoomSettings({ maxPlayers: 8.5, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 })
+      isRoomSettings({
+        maxPlayers: 8.5,
+        rounds: 10,
+        turns: "live",
+        maxWind: 0,
+        cash: 0,
+        interest: 5,
+        armsLevel: 4,
+        traces: false
+      })
     ).toBe(false);
     expect(isRoomSettings({ maxPlayers: 8, rounds: 2.5 })).toBe(false);
     expect(isRoomSettings({})).toBe(false);
@@ -143,13 +251,23 @@ describe("isRoomSettings", () => {
 });
 
 describe("the settings of the economy", () => {
-  const settings = { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 };
+  const settings = {
+    maxPlayers: 8,
+    rounds: 10,
+    turns: "live",
+    maxWind: 0,
+    cash: 0,
+    interest: 5,
+    armsLevel: 4,
+    traces: false
+  };
 
   it("have an interest of 0 to 30 per cent and an arms level of 0 to 4", () => {
     expect(isRoomSettings(settings)).toBe(true);
-    expect(isRoomSettings({ ...settings, interest: 30, armsLevel: 0 })).toBe(true);
+    expect(isRoomSettings({ ...settings, interest: 30, armsLevel: 0, traces: false })).toBe(true);
     for (const interest of [undefined, -1, 31, 2.5]) expect(isRoomSettings({ ...settings, interest })).toBe(false);
-    for (const armsLevel of [undefined, -1, 5, 1.5]) expect(isRoomSettings({ ...settings, armsLevel })).toBe(false);
+    for (const armsLevel of [undefined, -1, 5, 1.5])
+      expect(isRoomSettings({ ...settings, armsLevel, traces: false })).toBe(false);
   });
 });
 
@@ -171,7 +289,8 @@ describe("the version of the protocol", () => {
     7: "fa52dd71ac102570",
     8: "1c3dc1ab37d3fe99",
     9: "d842a2c0ed112fef",
-    10: "95a0e636ae33ac22"
+    10: "95a0e636ae33ac22",
+    11: "81d59318b615d6a9"
   };
 
   it("is raised when the protocol changes", () => {

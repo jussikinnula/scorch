@@ -146,11 +146,14 @@ export default function Controller({ api, room }: Props) {
   }
 
   return (
-    <section className="view controller">
-      <h2 className="controller__name">
-        <span className="players__color" style={{ background: playerColor(me.id) }} />
-        {me.name}
-      </h2>
+    <section className={`view controller${state.phase === "playing" ? " controller--playing" : ""}`}>
+      <div className="controller__top">
+        <h2 className="controller__name">
+          <span className="players__color" style={{ background: playerColor(me.id) }} />
+          {me.name}
+        </h2>
+        {state.phase === "playing" && <Wind wind={state.wind} className="controller__wind" />}
+      </div>
       {!state.screen && (
         <p className="error" role="alert">
           The screen of the game is away.
@@ -180,7 +183,9 @@ export default function Controller({ api, room }: Props) {
           {said !== undefined && <p className="note">You said: {said}</p>}
         </>
       )}
-      {state.phase === "playing" && aim && energy > 0 && (
+      {state.phase === "playing" && result && <Standings players={state.players} self={me.id} />}
+      {/* When a round is over the tank has nothing to do: its controls come back with the next round */}
+      {state.phase === "playing" && aim && energy > 0 && !result && (
         <>
           {turn && (
             <p className={`controller__turn${myTurn ? " controller__turn--mine" : ""}`} role="status" aria-label="Turn">
@@ -191,7 +196,6 @@ export default function Controller({ api, room }: Props) {
                   : `${state.players.find((player) => player.id === turn.player)?.name ?? "?"} is aiming`}
             </p>
           )}
-          <Wind wind={state.wind} className="controller__wind" />
           <p className="controller__energy" aria-label="Energy">
             <span
               style={{

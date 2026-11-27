@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { addTank, createField, FIELD_HEIGHT, FIELD_WIDTH, removeTank, TANK_WIDTH } from "./field";
+import { addTank, createField, drawWind, FIELD_HEIGHT, FIELD_WIDTH, removeTank, TANK_WIDTH } from "./field";
 import { createRandom, randomInteger } from "./random";
 import { flatten, generateTerrain, groundAt } from "./terrain";
 
@@ -126,5 +126,30 @@ describe("the field", () => {
 
     removeTank(field, 0);
     expect(field.tanks.map((tank) => tank.id)).toEqual([1, 2]);
+  });
+});
+
+describe("the wind of a round", () => {
+  it("is mostly light and sometimes strong, to either side, within what is allowed", () => {
+    const random = createRandom(7);
+    const winds = Array.from({ length: 2000 }, () => drawWind(200, random));
+    const strengths = winds.map(Math.abs).sort((a, b) => a - b);
+    expect(strengths[strengths.length - 1]).toBeLessThanOrEqual(200);
+    expect(winds.every(Number.isInteger)).toBe(true);
+    // As in the original at a Max. Wind of 200: about 30 on average, half of them under 27
+    const mean = strengths.reduce((sum, wind) => sum + wind, 0) / strengths.length;
+    expect(mean).toBeGreaterThan(25);
+    expect(mean).toBeLessThan(35);
+    expect(strengths[1000]).toBeGreaterThan(15);
+    expect(strengths[1000]).toBeLessThan(27);
+    // A wind over 100 is rare
+    expect(strengths.filter((wind) => wind > 100).length).toBeLessThan(100);
+    const right = winds.filter((wind) => wind > 0).length;
+    expect(right).toBeGreaterThan(850);
+    expect(right).toBeLessThan(1150);
+  });
+
+  it("is none when no wind is allowed", () => {
+    expect(drawWind(0, createRandom(1))).toBe(0);
   });
 });

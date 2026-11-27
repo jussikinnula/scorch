@@ -78,7 +78,8 @@ describe("Rooms", () => {
           maxWind: 0,
           cash: 0,
           interest: 5,
-          armsLevel: 4
+          armsLevel: 4,
+          traces: false
         },
         players: [],
         screen: true,
@@ -155,7 +156,16 @@ describe("Rooms", () => {
       const screen = createRoom();
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 2, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 2,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       joinRoom(screen, "Ann");
       joinRoom(screen, "Bob");
@@ -236,7 +246,16 @@ describe("Rooms", () => {
       const screen = createRoom();
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 3, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 3,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       joinRoom(screen, "Ann");
       joinRoom(screen, "Bob");
@@ -251,7 +270,16 @@ describe("Rooms", () => {
       joinRoom(screen, "Bob");
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 2, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 2,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       expect(state(screen).phase).toBe("playing");
     });
@@ -264,7 +292,16 @@ describe("Rooms", () => {
 
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 5, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 5,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       expect(state(ann).settings).toEqual({
         maxPlayers: 5,
@@ -273,12 +310,22 @@ describe("Rooms", () => {
         maxWind: 0,
         cash: 0,
         interest: 5,
-        armsLevel: 4
+        armsLevel: 4,
+        traces: false
       });
 
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 2, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 2,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       expect(errors(screen)).toEqual([{ type: "error", code: "not-allowed", re: "settings" }]);
       expect(state(ann).settings).toEqual({
@@ -288,7 +335,8 @@ describe("Rooms", () => {
         maxWind: 0,
         cash: 0,
         interest: 5,
-        armsLevel: 4
+        armsLevel: 4,
+        traces: false
       });
     });
 
@@ -299,7 +347,16 @@ describe("Rooms", () => {
       rooms.handle(screen, { type: "start" });
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 5, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 5,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       expect(errors(screen)).toEqual([{ type: "error", code: "wrong-phase", re: "settings" }]);
     });
@@ -325,7 +382,16 @@ describe("Rooms", () => {
         rooms.handle(who, { type: "kick", id: 1 });
         rooms.handle(who, {
           type: "settings",
-          settings: { maxPlayers: 2, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+          settings: {
+            maxPlayers: 2,
+            rounds: 10,
+            turns: "live",
+            maxWind: 0,
+            cash: 0,
+            interest: 5,
+            armsLevel: 4,
+            traces: false
+          }
         });
         expect(errors(who)).toEqual([
           { type: "error", code: "not-allowed", re: "start" },
@@ -342,7 +408,8 @@ describe("Rooms", () => {
           maxWind: 0,
           cash: 0,
           interest: 5,
-          armsLevel: 4
+          armsLevel: 4,
+          traces: false
         }
       });
       expect(state(screen).players).toHaveLength(2);
@@ -537,7 +604,16 @@ describe("Rooms", () => {
       const bob = joinRoom(screen, "Bob");
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       rooms.handle(screen, { type: "start" });
       return { screen, ann, bob };
@@ -564,7 +640,16 @@ describe("Rooms", () => {
       const screen = createRoom();
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 2, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 2,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       joinRoom(screen, "Ann");
       joinRoom(screen, "Bob");
@@ -660,7 +745,16 @@ describe("Rooms", () => {
       const bob = joinRoom(screen, "Bob");
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       rooms.handle(screen, { type: "start" });
       return { screen, ann, bob };
@@ -829,7 +923,16 @@ describe("Rooms", () => {
       expect(state(screen).wind).toBe(0);
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 500, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 10,
+          turns: "live",
+          maxWind: 500,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       rooms.handle(screen, { type: "start" });
 
@@ -852,7 +955,7 @@ describe("Rooms", () => {
       expect(room.state.settings.maxWind).toBe(200);
       other.handle("screen", {
         type: "settings",
-        settings: { ...room.state.settings, maxWind: 501, cash: 0, interest: 5, armsLevel: 4 }
+        settings: { ...room.state.settings, maxWind: 501, cash: 0, interest: 5, armsLevel: 4, traces: false }
       } as never);
     });
 
@@ -933,7 +1036,16 @@ describe("Rooms", () => {
       const bob = joinRoom(screen, "Bob");
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       rooms.handle(screen, { type: "start" });
       return { screen, ann, bob };
@@ -1030,7 +1142,16 @@ describe("Rooms", () => {
       const screen = createRoom();
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 2, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 2,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       const ann = joinRoom(screen, "Ann");
       const bob = joinRoom(screen, "Bob");
@@ -1216,7 +1337,16 @@ describe("Rooms", () => {
       const bob = joinRoom(screen, "Bob");
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       rooms.handle(screen, { type: "start" });
       expect(state(screen).turn).toBeNull();
@@ -1233,7 +1363,16 @@ describe("Rooms", () => {
       const bob = joinRoom(screen, "Bob");
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 10, turns: "live", maxWind: 0, cash: 0, interest: 5, armsLevel: 4 }
+        settings: {
+          maxPlayers: 8,
+          rounds: 10,
+          turns: "live",
+          maxWind: 0,
+          cash: 0,
+          interest: 5,
+          armsLevel: 4,
+          traces: false
+        }
       });
       rooms.handle(screen, { type: "start" });
       return { screen, ann, bob };
@@ -1296,7 +1435,17 @@ describe("Rooms", () => {
       const players = [joinRoom(screen, "Ann"), joinRoom(screen, "Bob"), joinRoom(screen, "Cid")];
       rooms.handle(screen, {
         type: "settings",
-        settings: { maxPlayers: 8, rounds: 3, turns: "live", maxWind: 0, cash, interest: 5, armsLevel: 4, ...more }
+        settings: {
+          maxPlayers: 8,
+          rounds: 3,
+          turns: "live",
+          maxWind: 0,
+          cash,
+          interest: 5,
+          armsLevel: 4,
+          traces: false,
+          ...more
+        }
       });
       rooms.handle(screen, { type: "start" });
       return { screen, players };
@@ -1425,7 +1574,7 @@ describe("Rooms", () => {
     });
 
     it("sells only the weapons of the arms level of the room", () => {
-      const { screen, players } = startGame(50000, { armsLevel: 0 });
+      const { screen, players } = startGame(50000, { armsLevel: 0, traces: false });
       const [ann] = players;
       rooms.handle(ann, { type: "buy", weapon: "nuke" });
       rooms.handle(ann, { type: "buy", weapon: "mirv" });
@@ -1446,43 +1595,16 @@ describe("Rooms", () => {
       expect(state(screen).players.map((player) => player.money)).toEqual([-1500, -1500, 6500]);
     });
 
-    it("lets a new player join while the shop is open, with the money of the start", () => {
-      const { screen, players } = startGame(10000);
-      rooms.handle(players[0], { type: "buy", weapon: "baby-nuke" });
-      const dee = joinRoom(screen, "Dee");
-      expect(last(dee, "joined").id).toBe(3);
-      expect(last(dee, "weapons")).toEqual({ type: "weapons", selected: "baby-missile", counts: {} });
-      expect(state(dee)).toMatchObject({ phase: "shop" });
-      expect(state(screen).players.map((player) => player.money)).toEqual([0, 10000, 10000, 10000]);
-
-      // The shop waits for the new player too, and the round has a tank for it
-      for (const player of players) rooms.handle(player, { type: "ready" });
+    it("lets nobody new join while the shop is open: the game has started", () => {
+      const { screen } = startGame(10000);
       expect(state(screen).phase).toBe("shop");
-      rooms.handle(dee, { type: "buy", weapon: "missile" });
-      rooms.handle(dee, { type: "ready" });
-      expect(state(screen)).toMatchObject({ phase: "playing", round: 1 });
-      expect(
-        last(screen, "field")
-          .field.tanks.map((tank) => tank.id)
-          .sort()
-      ).toEqual([0, 1, 2, 3]);
-      expect(last(dee, "aim").id).toBe(3);
-
-      // Not during a round
-      const eve = joinRoom(screen, "Eve");
-      expect(eve.messages).toEqual([{ type: "error", code: "wrong-phase", re: "join" }]);
-    });
-
-    it("lets a new player join between two rounds, and keeps the room at its maximum", () => {
-      const { screen, players } = startGame(0, { maxPlayers: 4 });
-      destroySelf(players[0]);
-      destroySelf(players[1]);
-      vi.advanceTimersByTime(5000);
-      expect(state(screen)).toMatchObject({ phase: "shop", round: 1 });
       const dee = joinRoom(screen, "Dee");
-      expect(state(dee).players.find((player) => player.name === "Dee")).toMatchObject({ wins: 0, money: 0 });
-      const eve = joinRoom(screen, "Eve");
-      expect(eve.messages).toEqual([{ type: "error", code: "room-full", re: "join" }]);
+      expect(dee.messages).toEqual([{ type: "error", code: "wrong-phase", re: "join" }]);
+      expect(state(screen).players).toHaveLength(3);
+
+      // Nor can the settings be changed any more
+      rooms.handle(screen, { type: "settings", settings: { ...state(screen).settings, maxPlayers: 10 } });
+      expect(errors(screen)).toEqual([{ type: "error", code: "wrong-phase", re: "settings" }]);
     });
 
     it("pays for the damage to another tank, and more for destroying it", () => {

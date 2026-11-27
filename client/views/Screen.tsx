@@ -64,6 +64,9 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
   // The settings as they will be once what was just clicked has gone through the server: a click
   // changes these, so that several quick clicks are not all counted from the same old settings
   const wanted = useRef<RoomState["settings"] | null>(null);
+  // Kept where the next message finds them, as the messages can come faster than the view is redrawn
+  const tracesNow = useRef(false);
+  const roundNow = useRef(0);
   const turnTime = useCountdown(state?.turn ? state.turn.time : null, state);
   const shopTime = useCountdown(state?.shop ? state.shop.time : null, state);
 
@@ -84,6 +87,10 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
   useApiMessages(api, (message) => {
     if (message.type === "room" && message.state.room === room) {
       setState(message.state);
+      tracesNow.current = message.state.settings.traces;
+      // The traces are of one round: a new round starts with none
+      if (message.state.round !== roundNow.current) action.current.traces.clear();
+      roundNow.current = message.state.round;
       wanted.current = message.state.settings;
     } else if (message.type === "token") setToken(message.token);
     else if (message.type === "field") {
@@ -93,6 +100,13 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
     } else if (message.type === "roundOver") setResult({ round: message.round, winner: message.winner });
     else if (message.type === "say") say(message.id, message.text);
     else if (message.type === "shots") {
+      // A Tracer leaves a trace of its path, and with Trace Paths on everything does
+      for (const shot of message.shots) {
+        if (shot.weapon !== "tracer" && !tracesNow.current) continue;
+        const trace = action.current.traces.get(shot.id) ?? { owner: shot.owner, points: [] };
+        trace.points.push({ x: shot.x, y: shot.y });
+        action.current.traces.set(shot.id, trace);
+      }
       action.current.previous = action.current.shots;
       action.current.shots = message.shots;
       action.current.at = performance.now();
@@ -190,13 +204,6 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
           {shopTime !== null && shopTime > 0 && `, or in ${shopTime} s`}. {ready.size} of {players.length} ready.
         </p>
         <Standings players={players} />
-        {joinUrl && !full && (
-          <div className="shop-join">
-            <QrCode value={joinUrl} label="QR code for joining the game" />
-            <p className="screen__hint">New players can join now: scan with the camera of your phone</p>
-            {playerTesting && <TestPhoneButton joinUrl={joinUrl} />}
-          </div>
-        )}
       </section>
     );
   }
@@ -424,6 +431,23 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
               disabled={settings.armsLevel >= MAX_ARMS_LEVEL}
             >
               +
+            </button>
+          </div>
+          <div className="stepper" role="group" aria-label="Trace paths">
+            <span>Trace paths</span>
+            <button
+              className={`button button--small${settings.traces ? "" : " button--chosen"}`}
+              aria-pressed={!settings.traces}
+              onClick={() => change({ traces: false })}
+            >
+              Tracers only
+            </button>
+            <button
+              className={`button button--small${settings.traces ? " button--chosen" : ""}`}
+              aria-pressed={settings.traces}
+              onClick={() => change({ traces: true })}
+            >
+              Every shot
             </button>
           </div>
           <button
