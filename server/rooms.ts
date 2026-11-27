@@ -396,7 +396,7 @@ class Rooms<Member> {
   }
 
   private changeSettings(member: Member, settings: RoomSettings) {
-    const room = this.roomOfScreen(member, "settings");
+    const room = this.roomOfHost(member, "settings");
     if (!room) return;
     if (room.phase !== "lobby") return this.refuse(member, "wrong-phase", "settings");
     if (settings.maxPlayers < room.players.length) return this.refuse(member, "not-allowed", "settings");
@@ -410,7 +410,7 @@ class Rooms<Member> {
   }
 
   private kick(member: Member, id: number) {
-    const room = this.roomOfScreen(member, "kick");
+    const room = this.roomOfHost(member, "kick");
     if (!room) return;
     const player = room.players.find((candidate) => candidate.id === id);
     if (!player) return this.refuse(member, "not-allowed", "kick");
@@ -424,7 +424,7 @@ class Rooms<Member> {
   }
 
   private start(member: Member) {
-    const room = this.roomOfScreen(member, "start");
+    const room = this.roomOfHost(member, "start");
     if (!room) return;
     if (room.phase !== "lobby") return this.refuse(member, "wrong-phase", "start");
     if (room.players.length < MIN_PLAYERS) return this.refuse(member, "not-allowed", "start");
@@ -434,7 +434,7 @@ class Rooms<Member> {
 
   /** After a game has finished: back to the lobby, where a new game can be started and new players can join. */
   private backToLobby(member: Member) {
-    const room = this.roomOfScreen(member, "lobby");
+    const room = this.roomOfHost(member, "lobby");
     if (!room) return;
     if (room.phase !== "finished") return this.refuse(member, "wrong-phase", "lobby");
 
@@ -460,7 +460,7 @@ class Rooms<Member> {
     // A tank cannot fire harder than its energy allows
     if (power !== undefined) tank.power = Math.min(power, tank.energy * 10);
     // Not back to the controller: it already shows what the player did
-    if (room.screen) this.send(room.screen, { type: "aim", id: tank.id, angle: tank.angle, power: tank.power });
+    this.show(room, { type: "aim", id: tank.id, angle: tank.angle, power: tank.power }, member);
   }
 
   /** Whether a player has a weapon to fire: at least one of it, or there is no end of it. */
@@ -702,20 +702,18 @@ class Rooms<Member> {
             // The player is told the energy of its own tank; the screen gets it with the tanks below
             const hit = room.players.find((player) => player.id === event.id);
             if (hit?.member) this.send(hit.member, { type: "energy", energy: event.energy });
-          } else if (!room.screen) {
-            continue;
           } else if (event.event === "explode") {
             const { x, y, radius, weapon } = event;
-            this.send(room.screen, { type: "explode", x, y, radius, weapon });
+            this.show(room, { type: "explode", x, y, radius, weapon });
           } else {
-            this.send(room.screen, { type: "terrain", changes: event.ops, tanks: room.field.tanks });
+            this.show(room, { type: "terrain", changes: event.ops, tanks: room.field.tanks });
           }
         }
       }
       // The money of the players is in the state of the room
       if (paid) this.announce(room);
       // Also when the last one has gone: an empty list tells that nothing is in the air any more
-      if (room.screen) {
+      if (this.viewers(room).length > 0) {
         const shots = room.shots.map(({ id, owner, weapon, x, y }) => ({
           id,
           owner,
@@ -723,7 +721,7 @@ class Rooms<Member> {
           x: Math.round(x),
           y: Math.round(y)
         }));
-        this.send(room.screen, { type: "shots", shots });
+        this.show(room, { type: "shots", shots });
       }
       flying ||= room.shots.length > 0;
       this.endRoundIfOver(room);
@@ -749,15 +747,37 @@ class Rooms<Member> {
 
     // The spaces at the ends are dropped, and those inside are single ones
     const message: ServerMessage = { type: "say", id: player.id, text: text.trim().replace(/\s+/g, " ") };
-    if (room.screen) this.send(room.screen, message);
+    this.show(room, message, member);
     // Also back to the one who said it, to show what was really shown
     this.send(member, message);
   }
 
-  /** The room a member is the screen of. A member that is not a screen is refused. */
-  private roomOfScreen(member: Member, re: ClientMessage["type"]) {
+  /**
+   * Those who show the playing field of a room, and so are told what happens on it: the screen of a
+   * hotseat room. In an online room they will be the players, each of whom has the field on its own device.
+   */
+  private viewers(room: Room<Member>): Member[] {
+    return room.screen ? [room.screen] : [];
+  }
+
+  /** Tells those who show the playing field something, except the one it is about if it already knows. */
+  private show(room: Room<Member>, message: ServerMessage, except?: Member) {
+    for (const viewer of this.viewers(room)) if (viewer !== except) this.send(viewer, message);
+  }
+
+  /**
+   * Whether a member is the host of its room: the one who changes the settings, starts the game and
+   * removes players. In a hotseat room the host is the screen. In an online room it will be one of
+   * the players.
+   */
+  private isHost(session: Session<Member>) {
+    return session.player === null;
+  }
+
+  /** The room a member is the host of. A member that is not a host is refused. */
+  private roomOfHost(member: Member, re: ClientMessage["type"]) {
     const session = this.sessions.get(member);
-    if (!session || session.player) {
+    if (!session || !this.isHost(session)) {
       this.refuse(member, "not-allowed", re);
       return null;
     }
@@ -826,7 +846,7 @@ class Rooms<Member> {
 
   /** Sends the playing field to the screen, which shows it. Nothing is sent before the game has started. */
   private sendField(room: Room<Member>) {
-    if (room.field && room.screen) this.send(room.screen, { type: "field", field: room.field });
+    if (room.field) this.show(room, { type: "field", field: room.field });
   }
 
   /**
