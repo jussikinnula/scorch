@@ -183,10 +183,15 @@ function drawTanks(
     if (tank.shield > 0) {
       // A shield is a ring around the tank: white when whole, and the darker a grey the less of it is left, as in the original
       const shade = shieldShade(tank.shield, tank.shieldMax);
-      // A shield that deflects is purple, and as much darker when it is worn
-      const [red, green, blue] = tank.deflects
-        ? [0.78, 0.36, 1].map((part) => Math.round(shade * part))
-        : [shade, shade, shade];
+      // A shield that deflects is purple, one that repels blue and the Super Mag gold: each as much darker when it is worn
+      const tint = tank.deflects
+        ? [0.78, 0.36, 1]
+        : tank.laserproof
+          ? [1, 0.8, 0.25]
+          : tank.repels
+            ? [0.35, 0.7, 1]
+            : [1, 1, 1];
+      const [red, green, blue] = tint.map((part) => Math.round(shade * part));
       context.strokeStyle = `rgb(${red}, ${green}, ${blue})`;
       context.fillStyle = `rgba(${red}, ${green}, ${blue}, 0.14)`;
       context.lineWidth = 2;

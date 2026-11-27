@@ -20,7 +20,7 @@ export const SOCKET_PATH = "/ws";
  * A client tells its version in the address it connects to (see socketPath), the server in its
  * greeting. The test of this file fails when the messages change and the version does not.
  */
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 
 /** The name of the part of the address of the WebSocket API where a client tells its version. */
 export const PROTOCOL_PARAMETER = "protocol";
@@ -247,6 +247,13 @@ export interface TankState {
   shieldMax: number;
   /** Whether the shield the tank has throws back the projectiles of others (a Force Shield). Not there when it does not. */
   deflects?: boolean;
+  /**
+   * How hard the shield the tank has pushes away the projectiles of others above it, as a multiple of
+   * gravity (a Mag Deflector or a Super Mag). Not there when it does not.
+   */
+  repels?: number;
+  /** Whether a Laser does nothing to the tank while its shield is up (a Super Mag). Not there when it does. */
+  laserproof?: boolean;
 }
 
 /** A projectile in the air, as it is shown. */

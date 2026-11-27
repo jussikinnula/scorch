@@ -32,6 +32,11 @@ interface Props {
   online?: boolean;
   /** In an online game: the playing field, which is shown under the bar of the controls during a round. */
   field?: React.ReactNode;
+  /**
+   * Told the aim of the tank whenever the player changes it, at once: the page of an online game
+   * shows it on its own field without waiting for the server, on anyone's turn.
+   */
+  onAim?: (aim: { angle: number; power: number }) => void;
 }
 
 /** Why this device cannot be a controller of the room. */
@@ -44,7 +49,7 @@ const PROBLEMS: Record<Problem, string> = {
 };
 
 /** A controller of a hotseat game: the lobby before the game, and the controls of the tank during it. */
-export default function Controller({ api, room, online = false, field }: Props) {
+export default function Controller({ api, room, online = false, field, onAim }: Props) {
   const [state, setState] = useState<RoomState | null>(null);
   const [self, setSelf] = useState<number | null>(null);
   const selfNow = useRef<number | null>(null);
@@ -78,6 +83,10 @@ export default function Controller({ api, room, online = false, field }: Props) 
   const sendAim = useThrottled(() => {
     if (api.send({ type: "aim", ...unsent.current })) unsent.current = {};
   }, AIM_INTERVAL);
+
+  useEffect(() => {
+    if (aim) onAim?.(aim);
+  }, [aim?.angle, aim?.power]);
 
   /** The player turned the turret or set the power: it is shown at once and sent to the server. */
   const changeAim = (change: { angle?: number; power?: number }) => {
@@ -270,7 +279,10 @@ export default function Controller({ api, room, online = false, field }: Props) 
             <>
               <AimBar angle={aim.angle} power={aim.power} maxPower={energy * 10} onChange={changeAim} />
               {weapons && <WeaponControl selected={weapons.selected} counts={weapons.counts} onSelect={chooseWeapon} />}
-              {weapons && <GearControl counts={weapons.counts} energy={energy} shield={shield} onUse={useItem} />}
+              {/* Behind one button, as the inventory of the original: the bar stays a row */}
+              {weapons && (
+                <GearControl compact counts={weapons.counts} energy={energy} shield={shield} onUse={useItem} />
+              )}
               <FireControl
                 reloadedAt={reload.until}
                 reloadTime={reload.time}

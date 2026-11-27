@@ -1,6 +1,6 @@
 import { FieldState, TankState } from "../protocol";
 import { SHIELD_RADIUS, TANK_HEIGHT, TANK_WIDTH, TURRET_LENGTH } from "./field";
-import { DEFLECT_COST, PARACHUTE_THRESHOLD } from "../accessories";
+import { DEFLECT_COST, PARACHUTE_THRESHOLD, REPEL_COST, REPEL_HEIGHT, REPEL_WIDTH } from "../accessories";
 import {
   chargeOf,
   DEFAULT_WEAPON,
@@ -137,6 +137,8 @@ export interface Shot {
    * out of whatever it started inside of, a tank or the ground.
    */
   leaving?: boolean;
+  /** The ids of the tanks whose shields have pushed this projectile away: each shield pays for a projectile once. */
+  repelled?: number[];
   /** Which of the bombs that a Funky Bomb threw this is, from 0. */
   part?: number;
   /** How large the explosion of such a bomb is, as a multiple of that of the weapon: they are of different sizes. */
@@ -237,6 +239,8 @@ function dropShield(tank: TankState) {
   tank.shield = 0;
   tank.shieldMax = 0;
   delete tank.deflects;
+  delete tank.repels;
+  delete tank.laserproof;
 }
 
 /** Whether a point is inside the body of a tank. A wreck does not stop a projectile. */
@@ -338,6 +342,8 @@ function laser(field: FieldState, weapon: Weapon, shot: Shot, events: ShotEvent[
   const most = Math.round(weapon.damage * chargeOf(shot.batteries ?? 0));
   const to = (tank: TankState) => {
     if (tank.id === shot.owner) return 0;
+    // A shield that is proof against lasers lets nothing of the beam to the tank
+    if (tank.laserproof && tank.shield > 0) return 0;
     // The beam is walked a few pixels at a time: a tank is not thinner than that
     for (let distance = 0; distance <= reach; distance += 4) {
       if (hitsTank(tank, shot.x + way.x * distance, shot.y + way.y * distance)) return most;
@@ -676,6 +682,27 @@ export function stepShots(
     }
     let vx = shot.vx + field.wind * WIND_PER_UNIT * dt;
     let vy = shot.vy + GRAVITY * dt;
+    // A shield that repels pushes the projectile of another that is over its tank up and aside, the harder the
+    // nearer it is: one that comes down on the tank is turned away, if it is not too fast
+    let repelled = shot.repelled;
+    for (const tank of shot.leaving ? [] : field.tanks) {
+      if (!tank.repels || tank.shield <= 0 || tank.energy <= 0 || tank.id === shot.owner) continue;
+      // Upwards, as in the original, and on the way it is going: it flies over the tank and lands beyond it. One
+      // that comes straight down is pushed to a side, so that it does not hang in the air
+      const aside = shot.x - tank.x;
+      const above = tank.y - TANK_HEIGHT - shot.y;
+      if (Math.abs(aside) > REPEL_WIDTH || above <= 0 || above > REPEL_HEIGHT) continue;
+      const push = tank.repels * GRAVITY * (1 - above / REPEL_HEIGHT);
+      const onward = Math.abs(vx) > 1 ? Math.sign(vx) : shot.id % 2 === 0 ? 1 : -1;
+      vy -= push * dt;
+      vx += onward * push * 0.6 * dt;
+      if (!repelled?.includes(tank.id)) {
+        repelled = [...(repelled ?? []), tank.id];
+        tank.shield = Math.max(0, tank.shield - REPEL_COST);
+        events.push({ event: "deflect", id: tank.id, x: Math.round(shot.x), y: Math.round(shot.y) });
+        if (tank.shield === 0) dropShield(tank);
+      }
+    }
     const from = { x: shot.x, y: shot.y };
     const to = { x: shot.x + vx * dt, y: shot.y + vy * dt };
     if (field.walls === "rubber") {
@@ -809,7 +836,7 @@ export function stepShots(
         flying.push({ ...shot, ...to, id: i === 0 ? shot.id : nextId(), warhead: true, vx: vx + spread, vy });
       }
     } else {
-      flying.push({ ...shot, ...to, vx, vy, leaving });
+      flying.push({ ...shot, ...to, vx, vy, leaving, ...(repelled ? { repelled } : {}) });
     }
   }
   return { shots: flying, events };

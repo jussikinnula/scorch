@@ -25,6 +25,16 @@ export default function Play({ api, room }: Props) {
   const [self, setSelf] = useState<number | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // The aim of this player as the controls have it: its own turret follows them at once, on anyone's turn.
+  // The server does not send a player its own aim back.
+  const [aim, setAim] = useState<{ angle: number; power: number } | null>(null);
+  const shown =
+    field && aim && self !== null
+      ? {
+          ...field,
+          tanks: field.tanks.map((tank) => (tank.id === self && tank.energy > 0 ? { ...tank, ...aim } : tank))
+        }
+      : field;
 
   useApiMessages(api, (message) => {
     if (message.type === "joined" && message.room === room) setSelf(message.id);
@@ -48,12 +58,13 @@ export default function Play({ api, room }: Props) {
           api={api}
           room={room}
           online
+          onAim={setAim}
           field={
-            state?.phase === "playing" && field ? (
+            state?.phase === "playing" && shown ? (
               <div className="play__field">
                 <Field
                   boxed
-                  field={field}
+                  field={shown}
                   players={state.players}
                   bubbles={bubbles}
                   action={action}
