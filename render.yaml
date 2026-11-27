@@ -18,3 +18,11 @@ services:
       # The addresses that are allowed to use the API, separated with commas
       - key: ALLOWED_ORIGINS
         value: https://scorch.mobile
+      # Render is a proxy in front of the server: the address of a client is in the header it writes.
+      # The limits of rooms and connections per address go by it.
+      - key: TRUST_PROXY
+        value: "true"
+      # The limits of the server have defaults, which can be changed here:
+      #   MAX_ROOMS (200), MAX_ONLINE_ROOMS (50), MAX_ROOMS_PER_ADDRESS (5),
+      #   MAX_ONLINE_ROOMS_PER_ADDRESS (1), MAX_CONNECTIONS_PER_ADDRESS (60),
+      #   ONLINE_LOBBY_TIME (300, in seconds)

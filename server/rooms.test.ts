@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_MAX_PLAYERS, MAX_NAME_LENGTH, RoomState, ServerMessage } from "../shared/protocol";
-import Rooms, { JOIN_TOKEN_LENGTH, ROOM_ID_LENGTH, RoomsOptions } from "./rooms";
+import { DEFAULT_MAX_PLAYERS, MAX_NAME_LENGTH, RoomState, ServerMessage, defaultSettings } from "../shared/protocol";
+import Rooms, { JOIN_TOKEN_LENGTH, LINK_TOKEN_LENGTH, ROOM_ID_LENGTH, RoomsOptions } from "./rooms";
 
 /** A connection of a test: it collects what the rooms send to it. */
 interface Member {
@@ -43,7 +43,7 @@ describe("Rooms", () => {
   };
 
   /** Rooms with no wind and the same terrains every time, so that a shot lands where it is aimed. */
-  const createRooms = (options: RoomsOptions) =>
+  const createRooms = (options: RoomsOptions<Member>) =>
     new Rooms<Member>(
       (to, message) => to.messages.push(message),
       (who) => (who.closed = true),
@@ -88,7 +88,10 @@ describe("Rooms", () => {
         round: 0,
         turn: null,
         wind: 0,
-        shop: null
+        shop: null,
+        host: null,
+        public: false,
+        startsIn: null
       });
       expect(last(screen, "token")).toEqual({
         type: "token",
@@ -1764,6 +1767,416 @@ describe("Rooms", () => {
       const energy = last(screen, "terrain").tanks.find((tank) => tank.id === to.id)!.energy;
       expect(energy).toBeLessThan(100);
       expect(paid).toBe((100 - energy) * 20 + (energy === 0 ? 2000 : 0));
+    });
+  });
+
+  describe("online rooms", () => {
+    const of = <Type extends ServerMessage["type"]>(member: Member, type: Type) =>
+      member.messages.filter((message) => message.type === type) as Extract<ServerMessage, { type: Type }>[];
+    const types = (member: Member) => member.messages.map((message) => message.type);
+
+    /** A player who creates an online room. */
+    const createOnline = (name: string, open = false, more: Partial<RoomState["settings"]> = {}) => {
+      const creator = member(name);
+      const settings = { ...defaultSettings(), maxWind: 0, ...more };
+      rooms.handle(creator, { type: "create", mode: "online", name, public: open, settings });
+      return creator;
+    };
+    /** A player who joins an online room with its link. */
+    const joinOnline = (host: Member, name: string) => {
+      const player = member(name);
+      rooms.handle(player, { type: "join", token: last(host, "token").token, name });
+      return player;
+    };
+
+    it("makes the one who creates the room its first player and its host, and gives it the link", () => {
+      const ann = createOnline("Ann");
+      expect(types(ann)).toEqual(["joined", "room", "token"]);
+      expect(last(ann, "joined").id).toBe(0);
+      expect(state(ann)).toMatchObject({
+        mode: "online",
+        phase: "lobby",
+        host: 0,
+        public: false,
+        screen: false,
+        players: [{ id: 0, name: "Ann", connected: true }]
+      });
+      // The token of the link does not change, and is too long to guess
+      const { token, expiresIn } = last(ann, "token");
+      expect(token).toHaveLength(LINK_TOKEN_LENGTH);
+      expect(expiresIn).toBe(0);
+      vi.advanceTimersByTime(TOKEN_PERIOD * 3);
+      expect(of(ann, "token")).toHaveLength(1);
+      const bob = joinOnline(ann, "Bob");
+      expect(last(bob, "joined").id).toBe(1);
+      expect(last(bob, "token").token).toBe(token);
+      expect(state(ann).players.map((player) => player.name)).toEqual(["Ann", "Bob"]);
+    });
+
+    it("lets only the host start the game and remove players", () => {
+      const ann = createOnline("Ann");
+      const bob = joinOnline(ann, "Bob");
+      rooms.handle(bob, { type: "start" });
+      rooms.handle(bob, { type: "kick", id: 0 });
+      expect(errors(bob)).toEqual([
+        { type: "error", code: "not-allowed", re: "start" },
+        { type: "error", code: "not-allowed", re: "kick" }
+      ]);
+
+      // The host does not remove itself: it leaves as anyone does
+      rooms.handle(ann, { type: "kick", id: 0 });
+      expect(errors(ann)).toEqual([{ type: "error", code: "not-allowed", re: "kick" }]);
+      const cid = joinOnline(ann, "Cid");
+      rooms.handle(ann, { type: "kick", id: 2 });
+      expect(errors(cid)).toEqual([{ type: "error", code: "no-session" }]);
+      rooms.handle(ann, { type: "start" });
+      expect(state(bob)).toMatchObject({ phase: "playing", round: 1 });
+    });
+
+    it("has the settings it was created with, which nobody can change: others chose the room by them", () => {
+      const ann = createOnline("Ann", true, { rounds: 3, turns: "live", walls: "rubber", maxPlayers: 4 });
+      const bob = joinOnline(ann, "Bob");
+      expect(state(bob).settings).toMatchObject({ rounds: 3, turns: "live", walls: "rubber", maxPlayers: 4 });
+
+      rooms.handle(ann, { type: "settings", settings: { ...state(ann).settings, rounds: 1 } });
+      rooms.handle(bob, { type: "settings", settings: { ...state(bob).settings, rounds: 1 } });
+      expect(errors(ann)).toEqual([{ type: "error", code: "not-allowed", re: "settings" }]);
+      expect(errors(bob)).toEqual([{ type: "error", code: "not-allowed", re: "settings" }]);
+      expect(state(bob).settings.rounds).toBe(3);
+
+      // Not after the game either, back in the lobby
+      rooms.handle(ann, { type: "start" });
+      expect(state(bob)).toMatchObject({ phase: "playing", settings: { rounds: 3 } });
+    });
+
+    it("shows the field to every player, and tells each what happens on it", () => {
+      const ann = createOnline("Ann", false, { turns: "live" });
+      const bob = joinOnline(ann, "Bob");
+      rooms.handle(ann, { type: "start" });
+      for (const player of [ann, bob]) {
+        expect(
+          last(player, "field")
+            .field.tanks.map((tank) => tank.id)
+            .sort()
+        ).toEqual([0, 1]);
+        expect(last(player, "aim").id).toBe(last(player, "joined").id);
+      }
+
+      // The aim of a player goes to the others, not back to the one who set it
+      const aims = of(ann, "aim").length;
+      rooms.handle(ann, { type: "aim", angle: 90, power: 100 });
+      expect(of(ann, "aim")).toHaveLength(aims);
+      expect(last(bob, "aim")).toEqual({ type: "aim", id: 0, angle: 90, power: 100 });
+
+      rooms.handle(ann, { type: "fire" });
+      vi.advanceTimersByTime(3000);
+      for (const player of [ann, bob]) {
+        expect(of(player, "shots").length).toBeGreaterThan(1);
+        expect(last(player, "shots").shots).toEqual([]);
+        expect(of(player, "explode")).toHaveLength(1);
+        expect(last(player, "terrain").tanks).toHaveLength(2);
+      }
+      // What is said is shown to everyone, once
+      rooms.handle(bob, { type: "say", text: "Missed me" });
+      expect(of(ann, "say")).toEqual([{ type: "say", id: 1, text: "Missed me" }]);
+      expect(of(bob, "say")).toHaveLength(1);
+    });
+
+    it("gives a player who returns the link, the field and what is its own", () => {
+      const ann = createOnline("Ann", false, { turns: "live" });
+      const bob = joinOnline(ann, "Bob");
+      rooms.handle(ann, { type: "start" });
+      rooms.disconnect(bob);
+      expect(state(ann).players[1].connected).toBe(false);
+      const again = member("Bob again");
+      rooms.handle(again, { type: "resume", room: state(ann).room, playerKey: last(bob, "joined").playerKey });
+      expect(types(again)).toEqual(["joined", "room", "token", "field", "aim", "reload", "energy", "weapons"]);
+      expect(last(again, "field").field.tanks).toHaveLength(2);
+    });
+
+    it("passes the host on when the host leaves: to the one who has been in the room the longest", () => {
+      const ann = createOnline("Ann");
+      const bob = joinOnline(ann, "Bob");
+      const cid = joinOnline(ann, "Cid");
+      rooms.handle(ann, { type: "leave" });
+      expect(state(bob)).toMatchObject({ host: 1, players: [{ name: "Bob" }, { name: "Cid" }] });
+      rooms.handle(bob, { type: "kick", id: 2 });
+      expect(errors(cid)).toEqual([{ type: "error", code: "no-session" }]);
+
+      // The number of the one who left is free again, but the one who takes it is the newest in the room
+      const dee = joinOnline(bob, "Dee");
+      const eve = joinOnline(bob, "Eve");
+      expect(last(dee, "joined").id).toBe(0);
+      expect(last(eve, "joined").id).toBe(2);
+      rooms.handle(bob, { type: "leave" });
+      expect(state(eve).host).toBe(0);
+    });
+
+    it("waits ten seconds for a host that lost its connection, and then passes the host on", () => {
+      const ann = createOnline("Ann");
+      const bob = joinOnline(ann, "Bob");
+      rooms.disconnect(ann);
+      vi.advanceTimersByTime(9000);
+      expect(state(bob).host).toBe(0);
+      vi.advanceTimersByTime(1000);
+      expect(state(bob).host).toBe(1);
+
+      // The old host is a player still, and can come back as one
+      const again = member("Ann again");
+      rooms.handle(again, { type: "resume", room: state(bob).room, playerKey: last(ann, "joined").playerKey });
+      expect(state(again)).toMatchObject({ host: 1, players: [{ name: "Ann", connected: true }, { name: "Bob" }] });
+    });
+
+    it("keeps the host that comes back in time, and has nobody to pass the host to when all are away", () => {
+      const ann = createOnline("Ann");
+      const bob = joinOnline(ann, "Bob");
+      rooms.disconnect(ann);
+      vi.advanceTimersByTime(5000);
+      const again = member("Ann again");
+      rooms.handle(again, { type: "resume", room: state(bob).room, playerKey: last(ann, "joined").playerKey });
+      vi.advanceTimersByTime(20000);
+      expect(state(bob).host).toBe(0);
+
+      rooms.disconnect(bob);
+      rooms.disconnect(again);
+      vi.advanceTimersByTime(20000);
+      const back = member("Bob again");
+      rooms.handle(back, { type: "resume", room: state(bob).room, playerKey: last(bob, "joined").playerKey });
+      expect(state(back).host).toBe(0);
+    });
+
+    it("goes on to the end with those who are left, and is gone when the last one leaves", () => {
+      const ann = createOnline("Ann", false, { turns: "live", rounds: 2 });
+      const bob = joinOnline(ann, "Bob");
+      const cid = joinOnline(ann, "Cid");
+      rooms.handle(ann, { type: "start" });
+      rooms.handle(bob, { type: "leave" });
+      expect(state(ann)).toMatchObject({ phase: "playing", round: 1 });
+      expect(last(ann, "field").field.tanks).toHaveLength(2);
+
+      // The round ends when the one who leaves was the last one in its way
+      rooms.handle(cid, { type: "leave" });
+      expect(last(ann, "roundOver")).toMatchObject({ round: 1, winner: 0 });
+      vi.advanceTimersByTime(5000);
+      expect(state(ann)).toMatchObject({ phase: "playing", round: 2, host: 0 });
+      expect(rooms.size).toBe(1);
+      rooms.handle(ann, { type: "leave" });
+      expect(rooms.size).toBe(0);
+    });
+
+    it("keeps a room that everyone lost the connection to for a while, and then removes it", () => {
+      const ann = createOnline("Ann");
+      const bob = joinOnline(ann, "Bob");
+      rooms.disconnect(ann);
+      rooms.disconnect(bob);
+      vi.advanceTimersByTime(ROOM_TIMEOUT - 1000);
+      expect(rooms.size).toBe(1);
+      const again = member("Bob again");
+      rooms.handle(again, { type: "resume", room: state(bob).room, playerKey: last(bob, "joined").playerKey });
+      vi.advanceTimersByTime(ROOM_TIMEOUT);
+      expect(rooms.size).toBe(1);
+      rooms.disconnect(again);
+      vi.advanceTimersByTime(ROOM_TIMEOUT);
+      expect(rooms.size).toBe(0);
+    });
+
+    it("lists the public rooms that can be joined: not private, started or full ones", () => {
+      const ann = createOnline("Ann", true, { maxPlayers: 3 });
+      createOnline("Bea", false);
+      createRoom();
+      const asker = member("asker");
+      rooms.handle(asker, { type: "list" });
+      expect(last(asker, "rooms").rooms).toEqual([
+        {
+          room: state(ann).room,
+          token: last(ann, "token").token,
+          host: "Ann",
+          players: 1,
+          settings: state(ann).settings,
+          startsIn: 300000
+        }
+      ]);
+
+      // Joined from the list, with its token
+      const bob = member("Bob");
+      rooms.handle(bob, { type: "join", token: last(asker, "rooms").rooms[0].token, name: "Bob" });
+      expect(state(ann).players).toHaveLength(2);
+      rooms.handle(asker, { type: "list" });
+      expect(last(asker, "rooms").rooms[0].players).toBe(2);
+
+      // Full: the game starts by itself, and the room is not in the list any more
+      joinOnline(ann, "Cid");
+      expect(state(ann).phase).toBe("playing");
+      rooms.handle(asker, { type: "list" });
+      expect(last(asker, "rooms").rooms).toEqual([]);
+      const late = joinOnline(ann, "Dee");
+      expect(late.messages).toEqual([{ type: "error", code: "wrong-phase", re: "join" }]);
+    });
+
+    it("lists the rooms with the most players first, and the older of two with as many", () => {
+      const ann = createOnline("Ann", true);
+      const bea = createOnline("Bea", true, { turns: "live" });
+      const cid = createOnline("Cid", true);
+      joinOnline(bea, "Dee");
+      joinOnline(cid, "Eve");
+      joinOnline(cid, "Fay");
+      const asker = member("asker");
+      rooms.handle(asker, { type: "list" });
+      expect(last(asker, "rooms").rooms.map((room) => [room.host, room.players])).toEqual([
+        ["Cid", 3],
+        ["Bea", 2],
+        ["Ann", 1]
+      ]);
+      // Each comes with its settings, to choose by
+      expect(last(asker, "rooms").rooms[1].settings.turns).toBe("live");
+
+      const gus = createOnline("Gus", true);
+      rooms.handle(asker, { type: "list" });
+      expect(last(asker, "rooms").rooms.map((room) => room.host)).toEqual(["Cid", "Bea", "Ann", "Gus"]);
+      expect(state(gus).players).toHaveLength(1);
+      expect(state(ann).players).toHaveLength(1);
+    });
+
+    it("has only so many online rooms, which does not stop hotseat rooms", () => {
+      rooms.shutdown();
+      rooms = createRooms({ maxOnlineRooms: 2 });
+      createOnline("Ann");
+      createOnline("Bea");
+      const cid = createOnline("Cid");
+      expect(cid.messages).toEqual([{ type: "error", code: "busy", re: "create" }]);
+      const screen = createRoom();
+      expect(last(screen, "created").room).toHaveLength(ROOM_ID_LENGTH);
+    });
+
+    it("starts the game by itself when the lobby has been open for five minutes, with those who are there", () => {
+      const ann = createOnline("Ann", true);
+      expect(state(ann).startsIn).toBe(300000);
+      vi.advanceTimersByTime(120000);
+      const bob = joinOnline(ann, "Bob");
+      expect(state(bob)).toMatchObject({ phase: "lobby", startsIn: 180000 });
+      const asker = member("asker");
+      rooms.handle(asker, { type: "list" });
+      expect(last(asker, "rooms").rooms[0].startsIn).toBe(180000);
+
+      vi.advanceTimersByTime(179000);
+      expect(state(bob).phase).toBe("lobby");
+      vi.advanceTimersByTime(1000);
+      expect(state(bob)).toMatchObject({ phase: "playing", round: 1, startsIn: null });
+      expect(last(bob, "field").field.tanks).toHaveLength(2);
+    });
+
+    it("closes a room that nobody else came to in that time, and tells its player", () => {
+      const ann = createOnline("Ann", true);
+      vi.advanceTimersByTime(300000);
+      expect(rooms.size).toBe(0);
+      expect(errors(ann)).toEqual([{ type: "error", code: "no-room" }]);
+      const asker = member("asker");
+      rooms.handle(asker, { type: "list" });
+      expect(last(asker, "rooms").rooms).toEqual([]);
+    });
+
+    it("does not wait for the time when the host starts the game, and opens the lobby anew after a game", () => {
+      const ann = createOnline("Ann", false, { turns: "live", rounds: 1 });
+      const bob = joinOnline(ann, "Bob");
+      vi.advanceTimersByTime(60000);
+      rooms.handle(ann, { type: "start" });
+      expect(state(bob)).toMatchObject({ phase: "playing", startsIn: null });
+      // The time of the lobby does nothing to a game that is going on
+      vi.advanceTimersByTime(300000);
+      expect(state(bob)).toMatchObject({ phase: "playing", round: 1 });
+
+      rooms.handle(bob, { type: "leave" });
+      vi.advanceTimersByTime(5000);
+      expect(state(ann).phase).toBe("finished");
+      rooms.handle(ann, { type: "lobby" });
+      expect(state(ann)).toMatchObject({ phase: "lobby", startsIn: 300000 });
+      // Alone in the new lobby: the room is closed when its time is out
+      vi.advanceTimersByTime(300000);
+      expect(rooms.size).toBe(0);
+    });
+
+    it("lets one address have one online room at a time", () => {
+      rooms.shutdown();
+      rooms = createRooms({ addressOf: (who) => who.name.split(" ")[0] });
+      const create = (name: string) => {
+        const creator = member(name);
+        const settings = { ...defaultSettings(), maxWind: 0 };
+        rooms.handle(creator, { type: "create", mode: "online", name: "Ann", public: true, settings });
+        return creator;
+      };
+      const first = create("home laptop");
+      const second = create("home phone");
+      expect(second.messages).toEqual([{ type: "error", code: "busy", re: "create" }]);
+      const other = create("office laptop");
+      expect(last(other, "joined").id).toBe(0);
+
+      // A hotseat room is another matter, and when the online room is gone there can be a new one
+      rooms.handle(second, { type: "create", mode: "hotseat" });
+      expect(last(second, "created").room).toHaveLength(ROOM_ID_LENGTH);
+      rooms.handle(first, { type: "leave" });
+      const third = create("home tablet");
+      expect(last(third, "joined").id).toBe(0);
+    });
+
+    it("keeps hotseat rooms as they were: the screen is the host, and no player is", () => {
+      const screen = createRoom();
+      const ann = joinRoom(screen, "Ann");
+      expect(state(screen)).toMatchObject({ mode: "hotseat", host: null, public: false });
+      rooms.handle(ann, { type: "start" });
+      expect(errors(ann)).toEqual([{ type: "error", code: "not-allowed", re: "start" }]);
+    });
+  });
+
+  describe("the limits of rooms", () => {
+    const create = (name: string) => {
+      const screen = member(name);
+      rooms.handle(screen, { type: "create", mode: "hotseat" });
+      return screen;
+    };
+
+    it("has only so many rooms in all", () => {
+      rooms.shutdown();
+      rooms = createRooms({ maxRooms: 2 });
+      create("first");
+      const second = create("second");
+      const third = create("third");
+      expect(third.messages).toEqual([{ type: "error", code: "busy", re: "create" }]);
+      expect(rooms.size).toBe(2);
+
+      const online = member("online");
+      rooms.handle(online, {
+        type: "create",
+        mode: "online",
+        name: "Ann",
+        public: true,
+        settings: defaultSettings()
+      });
+      expect(online.messages).toEqual([{ type: "error", code: "busy", re: "create" }]);
+
+      // When a room is gone, there is room for another
+      rooms.disconnect(second);
+      vi.advanceTimersByTime(ROOM_TIMEOUT);
+      rooms.handle(third, { type: "create", mode: "hotseat" });
+      expect(last(third, "created").room).toHaveLength(ROOM_ID_LENGTH);
+    });
+
+    it("has only so many rooms from one address, and does not count those of others", () => {
+      rooms.shutdown();
+      // The address of a member is the first word of its name
+      rooms = createRooms({ maxRoomsPerAddress: 2, addressOf: (who) => who.name.split(" ")[0] });
+      create("home tv");
+      create("home laptop");
+      const third = create("home tablet");
+      expect(third.messages).toEqual([{ type: "error", code: "busy", re: "create" }]);
+      const other = create("office tv");
+      expect(last(other, "created").room).toHaveLength(ROOM_ID_LENGTH);
+
+      // Joining is not creating: any number of players can come from the address of the room
+      for (const name of ["Ann", "Bob", "Cid"]) {
+        const phone = member(`home ${name}`);
+        rooms.handle(phone, { type: "join", token: last(other, "token").token, name });
+        expect(last(phone, "joined").room).toBe(last(other, "created").room);
+      }
     });
   });
 });

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
-import { FieldState, MIN_PLAYERS, RoomState } from "../../shared/protocol";
-import Field, { noAction } from "../components/Field";
+import { MIN_PLAYERS, RoomState } from "../../shared/protocol";
+import Field from "../components/Field";
 import PlayerList from "../components/PlayerList";
 import LobbySettings from "../components/LobbySettings";
 import QrCode from "../components/QrCode";
@@ -9,9 +9,8 @@ import Wind from "../components/Wind";
 import Standings, { ranked } from "../components/Standings";
 import TestPhoneButton from "../components/TestPhoneButton";
 import { Api, useApiMessages } from "../hooks/useApiConnection";
-import { applyTerrainOp } from "../../shared/sim/terrain";
-import { useBubbles } from "../hooks/useBubbles";
 import { useCountdown } from "../hooks/useCountdown";
+import { useFieldView } from "../hooks/useFieldView";
 import { toUrl } from "../routes";
 import { loadHostKey, saveHostKey } from "../session";
 
@@ -33,15 +32,8 @@ const PROBLEMS: Record<Problem, string> = {
 
 /** The big screen of a hotseat game: the lobby with the QR code, and later the playing field. */
 export default function Screen({ api, room, playerTesting = false }: Props) {
-  const [state, setState] = useState<RoomState | null>(null);
+  const { state, field, bubbles, action, flying, result } = useFieldView(api, room);
   const [token, setToken] = useState<string | null>(null);
-  const [field, setField] = useState<FieldState | null>(null);
-  const { bubbles, say } = useBubbles();
-  // The projectiles and the explosions move too fast to go through the state of the view
-  const action = useRef(noAction());
-  const [flying, setFlying] = useState(0);
-  /** The result of the round that just ended, while it is shown. */
-  const [result, setResult] = useState<{ round: number; winner: number | null } | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
   // After a problem the screen does not ask for the room again, e.g. to not fight another tab over it
   const stopped = useRef(false);
@@ -49,9 +41,6 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
   // The settings as they will be once what was just clicked has gone through the server: a click
   // changes these, so that several quick clicks are not all counted from the same old settings
   const wanted = useRef<RoomState["settings"] | null>(null);
-  // Kept where the next message finds them, as the messages can come faster than the view is redrawn
-  const tracesNow = useRef(false);
-  const roundNow = useRef(0);
   const turnTime = useCountdown(state?.turn ? state.turn.time : null, state);
   const shopTime = useCountdown(state?.shop ? state.shop.time : null, state);
 
@@ -70,54 +59,9 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
   }, [api, room]);
 
   useApiMessages(api, (message) => {
-    if (message.type === "room" && message.state.room === room) {
-      setState(message.state);
-      tracesNow.current = message.state.settings.traces;
-      // The traces are of one round: a new round starts with none
-      if (message.state.round !== roundNow.current) action.current.traces.clear();
-      roundNow.current = message.state.round;
-      wanted.current = message.state.settings;
-    } else if (message.type === "token") setToken(message.token);
-    else if (message.type === "field") {
-      setField(message.field);
-      // A new field is a new round: the result of the old one has been seen
-      setResult(null);
-    } else if (message.type === "roundOver") setResult({ round: message.round, winner: message.winner });
-    else if (message.type === "say") say(message.id, message.text);
-    else if (message.type === "shots") {
-      // A Tracer leaves a trace of its path, and with Trace Paths on everything does
-      for (const shot of message.shots) {
-        if (shot.weapon !== "tracer" && !tracesNow.current) continue;
-        const trace = action.current.traces.get(shot.id) ?? { owner: shot.owner, points: [] };
-        trace.points.push({ x: shot.x, y: shot.y });
-        action.current.traces.set(shot.id, trace);
-      }
-      action.current.previous = action.current.shots;
-      action.current.shots = message.shots;
-      action.current.at = performance.now();
-      setFlying(message.shots.length);
-    } else if (message.type === "explode") {
-      const { x, y, radius, weapon } = message;
-      action.current.explosions.push({ x, y, radius, weapon, at: performance.now() });
-    } else if (message.type === "terrain") {
-      const { changes, tanks } = message;
-      setField((current) => {
-        if (!current) return current;
-        // The same changes as on the server, to a copy: the old terrain is still being drawn
-        const terrain = [...current.terrain];
-        changes.forEach((change) => applyTerrainOp(terrain, change, current.height));
-        return { ...current, terrain, tanks };
-      });
-    } else if (message.type === "aim") {
-      const { id, angle, power } = message;
-      setField(
-        (current) =>
-          current && {
-            ...current,
-            tanks: current.tanks.map((tank) => (tank.id === id ? { ...tank, angle, power } : tank))
-          }
-      );
-    } else if (message.type === "error") {
+    if (message.type === "room" && message.state.room === room) wanted.current = message.state.settings;
+    else if (message.type === "token") setToken(message.token);
+    else if (message.type === "error") {
       if (message.code === "replaced") stop("replaced");
       else if (message.re === "host" && message.code === "no-session") stop("not-host");
       else if (message.re === "host" && message.code === "no-room") {
@@ -190,7 +134,7 @@ export default function Screen({ api, room, playerTesting = false }: Props) {
     return (
       <section className="game">
         {field ? (
-          <Field field={field} players={players} bubbles={bubbles} action={action.current} turn={state.turn?.player} />
+          <Field field={field} players={players} bubbles={bubbles} action={action} turn={state.turn?.player} />
         ) : (
           <p className="note">Getting the playing field…</p>
         )}

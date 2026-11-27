@@ -123,6 +123,28 @@ Joining is open again between the rounds, once the game has rounds.
 
 **A device that returns is told everything it needs.** After `host` or `resume` the server sends the whole of what that role shows, not only what has changed since: a device that returns may have missed anything, or may be a page that was just reloaded and knows nothing. Today that is the state of the room, for the screen also the join token and the playing field as it is now with the aims of all the tanks, and for a controller the aim of its own tank, how long it still reloads, its energy and its weapons. Each later feature adds its part to this: the playing field for those who show it, and for a player its own aim, energy, money, inventory, turn and reload. Every such addition gets a test that returns in the middle of it (see PLAN.md, Testing).
 
+## An online room
+
+Everyone plays on a device of their own, which shows both the playing field and the controls. There is no screen. The design and what is still to come are in [ONLINE.md](ONLINE.md).
+
+```
+player                                server
+  │ ── create { mode: "online", name, public, settings } ─▶ │
+  │ ◀── joined { room, id: 0, playerKey } ─────── │
+  │ ◀── room { state: { mode: "online", host: 0, public } } │
+  │ ◀── token { token, expiresIn: 0 } ─────────── │
+```
+
+- **The one who creates the room is its first player and its host.** The host plays as everyone else does; being the host matters for setting the game up: `start`, `kick` and `lobby` are the host's, and anyone else gets `not-allowed`. The state of the room tells who the host is (`host`, the id of the player; null in a hotseat room). The host cannot `kick` itself: it leaves with `leave`, as anyone.
+- **The settings are fixed.** They are given in `create` and stay as they are: those who see the room in the list choose it by them. A `settings` message is refused with `not-allowed` in an online room, also from its host. The front page is where they are chosen.
+- **The lobby is open for five minutes** (`LOBBY_TIME`). The state of the room tells how long is left (`startsIn`, in milliseconds; null outside the lobby and in a hotseat room), and so does each room of the list. When the time is out, the game starts by itself with those who are there; if they are fewer than two, the room is closed, and its player is told `no-room`. The host can start the game sooner, and a room that is full starts at once. After a game, a new lobby has a new five minutes.
+- **The link.** The token of an online room does not change (`expiresIn` is 0) and is twenty characters long. The address `#/join/<token>` is the link to the room. Every player of the room is told the token, at first and on return.
+- **Joining** is the same `join { token, name }` as in hotseat, and only in the lobby. The page of a player is `#/play/<room>`.
+- **The list of public games.** `list` is answered with `rooms { rooms }`: the public rooms that are in the lobby and not full, each with its `room`, `token`, the name of its `host`, the number of its `players` and its `settings`. Those with the most players come first, as they are the nearest to starting, and the older of two with as many. A room that is full has started, and is not in the list. The front page can show only the games of one way of taking turns. The front page asks for it every five seconds while it is shown. A private room is never in the list.
+- **Every player shows the field.** What goes to the screen of a hotseat room (`field`, `shots`, `explode`, `terrain`, the `aim` of the others, `say`) goes to every connected player of an online room. A player's own `aim` is not sent back to it. A player who returns gets the whole `field` as it is, with what a controller gets.
+- **When the host goes.** A host that leaves is replaced at once, and one that loses its connection after ten seconds (`HOST_GRACE`) unless it has come back: the player who has been in the room the longest becomes the host, one who is connected if there is one. The one who was the host stays a player.
+- **When players go.** The game goes on to its end with those who are left, also with one. When the last player leaves, the room is removed. A room that nobody is connected to is kept for five minutes, as a hotseat room without its screen.
+
 ## Playing: the first slice
 
 ### The field
@@ -286,27 +308,32 @@ controller                          server                          screen
 
 When the server refuses something, it answers `error { code, re }`, where `re` is the type of the message that was refused. An error that is not an answer to a message (`replaced`, a removed player, a removed room) has no `re`.
 
-| Code            | Meaning                                                                                              |
-| --------------- | ---------------------------------------------------------------------------------------------------- |
-| `wrong-version` | The client has another version of the protocol than the server.                                      |
-| `bad-message`   | Not a message of the API: not JSON, an unknown type, a missing or wrong field.                       |
-| `bad-token`     | The join token is not valid (any more).                                                              |
-| `no-room`       | There is no such room (any more).                                                                    |
-| `no-session`    | The key does not open the room.                                                                      |
-| `room-full`     | The room has its maximum number of players.                                                          |
-| `bad-name`      | The name was refused (the word filter, later).                                                       |
-| `not-allowed`   | The client is not in a room, or its role may not do this.                                            |
-| `wrong-phase`   | The room is not in a phase where this can be done, e.g. joining a game that has started.             |
-| `reloading`     | The tank is still reloading after its last shot.                                                     |
-| `no-weapon`     | There is no such weapon, or the player has none of it.                                               |
-| `no-money`      | In the shop: the player does not have the money for it.                                              |
-| `too-many`      | In the shop: the player would have more than 99 of the weapon.                                       |
-| `destroyed`     | The tank of the player has been destroyed.                                                           |
-| `not-your-turn` | In the classic mode: it is not the turn of the player, or the player has already fired on this turn. |
-| `rate-limited`  | Too many messages.                                                                                   |
-| `replaced`      | Another connection took over this screen or player. The connection is closed.                        |
+| Code            | Meaning                                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `wrong-version` | The client has another version of the protocol than the server.                                                     |
+| `bad-message`   | Not a message of the API: not JSON, an unknown type, a missing or wrong field.                                      |
+| `bad-token`     | The join token is not valid (any more).                                                                             |
+| `no-room`       | There is no such room (any more).                                                                                   |
+| `no-session`    | The key does not open the room.                                                                                     |
+| `room-full`     | The room has its maximum number of players.                                                                         |
+| `busy`          | The server has as many games as it takes: in all (200), online (50), or from this address (5, of which one online). |
+| `bad-name`      | The name was refused (the word filter, later).                                                                      |
+| `not-allowed`   | The client is not in a room, or its role may not do this.                                                           |
+| `wrong-phase`   | The room is not in a phase where this can be done, e.g. joining a game that has started.                            |
+| `reloading`     | The tank is still reloading after its last shot.                                                                    |
+| `no-weapon`     | There is no such weapon, or the player has none of it.                                                              |
+| `no-money`      | In the shop: the player does not have the money for it.                                                             |
+| `too-many`      | In the shop: the player would have more than 99 of the weapon.                                                      |
+| `destroyed`     | The tank of the player has been destroyed.                                                                          |
+| `not-your-turn` | In the classic mode: it is not the turn of the player, or the player has already fired on this turn.                |
+| `rate-limited`  | Too many messages.                                                                                                  |
+| `replaced`      | Another connection took over this screen or player. The connection is closed.                                       |
 
 A connection that sends more than 40 messages within a second gets `rate-limited` once, and the extra messages are dropped.
+
+The limits of the server are defaults that its environment can change: `MAX_ROOMS`, `MAX_ONLINE_ROOMS`, `MAX_ROOMS_PER_ADDRESS`, `MAX_ONLINE_ROOMS_PER_ADDRESS`, `MAX_CONNECTIONS_PER_ADDRESS` and `ONLINE_LOBBY_TIME` (in seconds).
+
+One address can have 60 connections at a time; more are refused before they are connections at all (HTTP 429). A whole hotseat game is behind one address, the screen and the phones alike, so the limit is generous. Behind the proxy of the host (Render) the address is the one the proxy tells in `X-Forwarded-For`, which the server believes only when `TRUST_PROXY` is set. A client can write that header itself, so these limits stop accidents and casual misuse, not someone determined.
 
 ## Later
 
@@ -314,7 +341,6 @@ Sketched only, to check that the design above has room for them. They are design
 
 - **The shop, later**: Free Market.
 - **The live mode** (phase 2): the same `aim` and `fire`; the server answers a `fire` during a reload with an error and tells each player when its reload ends.
-- **Online** (phase 3): `create { mode: "online", public }`, a list of the public rooms, and `join` with the token of a private link, which does not change. The role is "player": it gets both the messages of a controller and those of the field.
 
 ### More kinds of projectiles and changes
 

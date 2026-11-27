@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 
-import { AIM_INTERVAL, MAX_ENERGY, RoomState } from "../../shared/protocol";
+import { AIM_INTERVAL, MAX_ANGLE, MAX_ENERGY, MIN_ANGLE, MIN_POWER, RoomState } from "../../shared/protocol";
+import { WEAPONS } from "../../shared/weapons";
 import { playerColor } from "../colors";
+import AimBar from "../components/AimBar";
 import AimControl from "../components/AimControl";
 import FireControl from "../components/FireControl";
 import PlayerList from "../components/PlayerList";
@@ -20,6 +22,10 @@ import { loadPlayerKey, savePlayerKey } from "../session";
 interface Props {
   api: Api;
   room: string;
+  /** Whether this is the player of an online game, whose page also has the playing field (see Play). */
+  online?: boolean;
+  /** In an online game: the playing field, which is shown under the bar of the controls during a round. */
+  field?: React.ReactNode;
 }
 
 /** Why this device cannot be a controller of the room. */
@@ -32,7 +38,7 @@ const PROBLEMS: Record<Problem, string> = {
 };
 
 /** A controller of a hotseat game: the lobby before the game, and the controls of the tank during it. */
-export default function Controller({ api, room }: Props) {
+export default function Controller({ api, room, online = false, field }: Props) {
   const [state, setState] = useState<RoomState | null>(null);
   const [self, setSelf] = useState<number | null>(null);
   const selfNow = useRef<number | null>(null);
@@ -119,6 +125,63 @@ export default function Controller({ api, room }: Props) {
     }
   });
 
+  // A player of an online game has the field on the same page: its view is another one
+  const mode = state?.mode;
+  useEffect(() => {
+    if (mode === "online" && !online) navigate({ view: "play", room }, true);
+    if (mode === "hotseat" && online) navigate({ view: "controller", room }, true);
+  }, [mode, online, room]);
+
+  /** Fires the tank. The aim that was just set goes before the shot, not after it. */
+  const fire = () => {
+    if (Object.keys(unsent.current).length > 0 && api.send({ type: "aim", ...unsent.current })) unsent.current = {};
+    api.send({ type: "fire" });
+  };
+
+  /** Chooses the weapon the tank fires next. It is shown at once; the server answers with what the tank really has. */
+  const chooseWeapon = (weapon: string) => {
+    setWeapons((current) => current && { ...current, selected: weapon });
+    api.send({ type: "weapon", weapon });
+  };
+
+  // In an online game the keys work as in the original: the arrows aim, the space bar fires, Tab changes the weapon
+  const canAim = online && state?.phase === "playing" && aim !== null && energy > 0 && result === null;
+  const keys = useRef<(event: KeyboardEvent) => void>(() => {});
+  keys.current = (event) => {
+    if (!canAim || !aim) return;
+    // Not while something is being written, e.g. a speech bubble
+    const target = event.target as HTMLElement | null;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return;
+    const big = event.shiftKey;
+    const changes: Record<string, () => void> = {
+      ArrowLeft: () => changeAim({ angle: Math.min(MAX_ANGLE, aim.angle + (big ? 5 : 1)) }),
+      ArrowRight: () => changeAim({ angle: Math.max(MIN_ANGLE, aim.angle - (big ? 5 : 1)) }),
+      ArrowUp: () => changeAim({ power: Math.min(energy * 10, aim.power + (big ? 25 : 5)) }),
+      ArrowDown: () => changeAim({ power: Math.max(MIN_POWER, aim.power - (big ? 25 : 5)) }),
+      PageUp: () => changeAim({ power: Math.min(energy * 10, aim.power + 50) }),
+      PageDown: () => changeAim({ power: Math.max(MIN_POWER, aim.power - 50) }),
+      " ": () => {
+        if (!event.repeat && (!turn || myTurn) && reload.until <= performance.now()) fire();
+      },
+      Tab: () => {
+        if (!weapons) return;
+        const owned = WEAPONS.filter((weapon) => !Number.isFinite(weapon.bundle) || weapons.counts[weapon.id] > 0);
+        const now = owned.findIndex((weapon) => weapon.id === weapons.selected);
+        chooseWeapon(owned[(now + (event.shiftKey ? owned.length - 1 : 1)) % owned.length].id);
+      }
+    };
+    const change = changes[event.key];
+    if (!change) return;
+    event.preventDefault();
+    change();
+  };
+  useEffect(() => {
+    if (!online) return;
+    const onKey = (event: KeyboardEvent) => keys.current(event);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [online]);
+
   const leave = () => {
     api.send({ type: "leave" });
     savePlayerKey(room, null);
@@ -145,6 +208,76 @@ export default function Controller({ api, room }: Props) {
     );
   }
 
+  if (online && state.phase === "playing") {
+    // A round of an online game, as in the original: a narrow bar with what the player needs to aim
+    // and fire, and the playing field under it with the rest of the window
+    const name = (id: number) => state.players.find((player) => player.id === id)?.name ?? "?";
+    return (
+      <section className="controller online">
+        <div className="bar">
+          <div className="bar__status">
+            <h2 className="bar__name">
+              <span className="players__color" style={{ background: playerColor(me.id) }} />
+              {me.name}
+            </h2>
+            <p className="controller__energy bar__energy" aria-label="Energy">
+              <span
+                style={{
+                  width: `${energy}%`,
+                  background: energy > 50 ? "#2f8f5b" : energy > 25 ? "#b8860b" : "#c0392b"
+                }}
+              />
+              {energy}
+            </p>
+            <Wind wind={state.wind} className="bar__wind" />
+          </div>
+          {result ? (
+            <p className="bar__message bar__message--result" role="alert">
+              {result.winner === null
+                ? "Nobody is left."
+                : result.winner === me.id
+                  ? "You won the round!"
+                  : `${name(result.winner)} won the round.`}{" "}
+              {state.round < state.settings.rounds ? "The next round starts in a moment." : "That was the last round."}
+            </p>
+          ) : !aim ? null : energy <= 0 ? (
+            <p className="bar__message" role="status">
+              Your tank was destroyed.
+            </p>
+          ) : (
+            <>
+              <AimBar angle={aim.angle} power={aim.power} maxPower={energy * 10} onChange={changeAim} />
+              {weapons && <WeaponControl selected={weapons.selected} counts={weapons.counts} onSelect={chooseWeapon} />}
+              <FireControl
+                reloadedAt={reload.until}
+                reloadTime={reload.time}
+                waiting={turn && !myTurn ? "Wait" : undefined}
+                onFire={fire}
+              />
+            </>
+          )}
+          {turn && !result && (
+            <p className={`bar__turn${myTurn ? " bar__turn--mine" : ""}`} role="status" aria-label="Turn">
+              {myTurn
+                ? `Your turn${turnTime ? ` · ${turnTime}` : ""}`
+                : turn.player === me.id
+                  ? "Your shot is on its way"
+                  : `${name(turn.player)} is aiming`}
+            </p>
+          )}
+        </div>
+        {field}
+        {result && <Standings players={state.players} self={me.id} />}
+        <div className="online__rest">
+          <SayControl onSay={(text) => api.send({ type: "say", text })} />
+          <button className="button controller__leave" onClick={leave}>
+            Leave the game
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className={`view controller${state.phase === "playing" ? " controller--playing" : ""}`}>
       <div className="controller__top">
@@ -154,7 +287,7 @@ export default function Controller({ api, room }: Props) {
         </h2>
         {state.phase === "playing" && <Wind wind={state.wind} className="controller__wind" />}
       </div>
-      {!state.screen && (
+      {!online && !state.screen && (
         <p className="error" role="alert">
           The screen of the game is away.
         </p>
@@ -213,27 +346,12 @@ export default function Controller({ api, room }: Props) {
             color={playerColor(me.id)}
             onChange={changeAim}
           />
-          {weapons && (
-            <WeaponControl
-              selected={weapons.selected}
-              counts={weapons.counts}
-              onSelect={(weapon) => {
-                // Shown at once; the server answers with what the tank really has
-                setWeapons({ ...weapons, selected: weapon });
-                api.send({ type: "weapon", weapon });
-              }}
-            />
-          )}
+          {weapons && <WeaponControl selected={weapons.selected} counts={weapons.counts} onSelect={chooseWeapon} />}
           <FireControl
             reloadedAt={reload.until}
             reloadTime={reload.time}
             waiting={turn && !myTurn ? "Wait" : undefined}
-            onFire={() => {
-              // The aim that was just set goes before the shot, not after it
-              if (Object.keys(unsent.current).length > 0 && api.send({ type: "aim", ...unsent.current }))
-                unsent.current = {};
-              api.send({ type: "fire" });
-            }}
+            onFire={fire}
           />
           <SayControl onSay={(text) => api.send({ type: "say", text })} />
           {said !== undefined && (
@@ -260,7 +378,14 @@ export default function Controller({ api, room }: Props) {
           />
         </>
       )}
-      {state.phase === "lobby" && <PlayerList players={state.players} self={me.id} />}
+      {state.phase === "lobby" && (
+        <PlayerList
+          players={state.players}
+          self={me.id}
+          // The host of an online game can remove the others
+          onKick={online && state.host === me.id ? (player) => api.send({ type: "kick", id: player.id }) : undefined}
+        />
+      )}
       {state.phase === "finished" && (
         <>
           <p className="controller__status" role="status">

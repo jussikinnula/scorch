@@ -2,8 +2,17 @@ import React from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { Backend, BrowserWebSocket, openController, openScreen, startBackend, TestClient } from "../../test/backend";
+import {
+  Backend,
+  BrowserWebSocket,
+  openClient,
+  openController,
+  openScreen,
+  startBackend,
+  TestClient
+} from "../../test/backend";
 import App from "../App";
+import { defaultSettings } from "../../shared/protocol";
 import { parseRoute } from "../routes";
 import { loadHostKey, loadPlayerKey } from "../session";
 
@@ -40,7 +49,7 @@ describe("a hotseat game", () => {
     // The terrain is the same every time, so that a shot lands where it did the last time
     backend = await startBackend({
       allowedOrigins: [window.location.origin, "http://localhost"],
-      rooms: { seed: 1, maxWind: 0, kit: true, shopTime: 0 }
+      rooms: { seed: 1, maxWind: 0, kit: true, shopTime: 0, maxOnlineRoomsPerAddress: 10 }
     });
   });
 
@@ -748,6 +757,114 @@ describe("a hotseat game", () => {
       expect(screen.queryByRole("img", { name: "QR code for joining the game" })).toBeNull();
       bob.send({ type: "ready" });
       expect(await screen.findByRole("img", { name: "The playing field" }, FIND)).toBeInTheDocument();
+    });
+  });
+
+  describe("online", () => {
+    /** Starts an online game from the front page, as Ann. */
+    const startOnline = async (visibility: "Anyone" | "Those with the link") => {
+      render(<App apiUrl={backend.url} />);
+      fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ann" } });
+      fireEvent.click(screen.getByRole("button", { name: visibility }));
+      // The settings are chosen before the game is created: live turns, no wind and three rounds
+      fireEvent.click(screen.getByRole("button", { name: "Live" }));
+      for (let clicks = 0; clicks < 4; clicks++) fireEvent.click(screen.getByRole("button", { name: "Less wind" }));
+      for (let clicks = 0; clicks < 7; clicks++) fireEvent.click(screen.getByRole("button", { name: "Fewer rounds" }));
+      expect(screen.getByLabelText("Rounds")).toHaveTextContent("3");
+      const button = screen.getByRole("button", { name: "Start an online game" });
+      await vi.waitFor(() => expect(button).toBeEnabled(), FIND);
+      fireEvent.click(button);
+      await screen.findByRole("heading", { name: "Ann" }, FIND);
+      const link = (await screen.findByLabelText(/link/i, {}, FIND)) as HTMLInputElement;
+      const route = parseRoute(new URL(link.value).hash);
+      if (route.view !== "join") throw new Error("The link is not for joining");
+      return route.token;
+    };
+
+    it("starts a private game with a link, which another player joins, and plays it on one page", async () => {
+      const token = await startOnline("Those with the link");
+      expect(window.location.hash).toMatch(/^#\/play\//);
+      expect(screen.getByText(/only those who have the link can join/)).toBeInTheDocument();
+      // The host has the start button, and cannot start alone. The settings are as they were chosen, and only to read.
+      expect(screen.getByRole("button", { name: "Start the game" })).toBeDisabled();
+      const settings = screen.getByRole("list", { name: "Settings" });
+      expect(settings).toHaveTextContent("Live");
+      expect(settings).toHaveTextContent("3 rounds");
+      expect(settings).toHaveTextContent("no wind");
+      expect(screen.queryByRole("button", { name: "Fewer rounds" })).toBeNull();
+
+      const bob = await openController(backend, token, "Bob");
+      clients.push(bob);
+      expect(await screen.findByText("Bob", {}, FIND)).toBeInTheDocument();
+      // The host can remove the others, not itself
+      expect(screen.getByRole("button", { name: "Remove Bob" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Remove Ann" })).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Start the game" }));
+
+      // The field and the controls are on the same page
+      expect(await screen.findByRole("img", { name: "The playing field" }, FIND)).toBeInTheDocument();
+      const fire = await screen.findByRole("button", { name: "Fire" }, FIND);
+      expect(screen.getByLabelText("Energy")).toHaveTextContent("100");
+      expect(screen.queryByText("The screen of the game is away.")).toBeNull();
+      await vi.waitFor(() => expect(fire).toBeEnabled(), FIND);
+
+      // The keys work as in the original: the arrows aim, Tab changes the weapon, the space bar fires
+      const power = Number(screen.getByLabelText("Power value").textContent);
+      const angle = screen.getByLabelText("Angle").textContent;
+      fireEvent.keyDown(window, { key: "ArrowUp" });
+      fireEvent.keyDown(window, { key: "ArrowUp" });
+      fireEvent.keyDown(window, { key: "ArrowDown", shiftKey: true });
+      expect(screen.getByLabelText("Power value")).toHaveTextContent(String(power - 15));
+      fireEvent.keyDown(window, { key: "ArrowLeft" });
+      expect(screen.getByLabelText("Angle").textContent).not.toBe(angle);
+      // The other player is told of the aim
+      let aimed = await bob.next("aim");
+      while (aimed.id !== 0) aimed = await bob.next("aim");
+      fireEvent.keyDown(window, { key: " " });
+      expect(await screen.findByText("Projectiles in the air: 1", {}, FIND)).toBeInTheDocument();
+      // The other player is told of the shot too: it shows the field as well
+      expect((await bob.next("shots")).shots[0].owner).toBe(0);
+      expect((await bob.next("field")).field.tanks).toHaveLength(2);
+    });
+
+    it("lists a public game on the front page of others, and not a private one", async () => {
+      const ann = await openClient(backend);
+      clients.push(ann);
+      ann.send({ type: "create", mode: "online", name: "Ann", public: true, settings: defaultSettings() });
+      await ann.next("joined");
+      const bea = await openClient(backend);
+      clients.push(bea);
+      bea.send({ type: "create", mode: "online", name: "Bea", public: false, settings: defaultSettings() });
+      await bea.next("joined");
+
+      render(<App apiUrl={backend.url} />);
+      const join = await screen.findByRole("link", { name: "Join the game of Ann" }, FIND);
+      expect(screen.getByText("1 of 8 players")).toBeInTheDocument();
+      // Its settings are there to choose it by
+      expect(screen.getByText(/Classic turns · 10 rounds · up to 8 players · wind up to 200/)).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Join the game of Bea" })).toBeNull();
+
+      // The list can be narrowed to the games of one way of taking turns
+      fireEvent.click(screen.getByRole("button", { name: "Live games" }));
+      expect(screen.queryByRole("link", { name: "Join the game of Ann" })).toBeNull();
+      expect(screen.getByText("There are no public games of this kind to join right now.")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Classic games" }));
+      expect(screen.getByRole("link", { name: "Join the game of Ann" })).toBeInTheDocument();
+
+      // Joining it leads to the view of an online player, through the page that asks for a name
+      const { token } = await ann.next("token");
+      expect(join.getAttribute("href")).toBe(`#/join/${token}`);
+      cleanup();
+      window.location.hash = `#/join/${token}`;
+      render(<App apiUrl={backend.url} />);
+      fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Cid" } });
+      const button = screen.getByRole("button", { name: "Join" });
+      await vi.waitFor(() => expect(button).toBeEnabled(), FIND);
+      fireEvent.click(button);
+      await vi.waitFor(() => expect(window.location.hash).toMatch(/^#\/play\//), FIND);
+      expect(await screen.findByText("Ann starts the game.", {}, FIND)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Start the game" })).toBeNull();
     });
   });
 });

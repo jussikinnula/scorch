@@ -31,7 +31,7 @@ export default function PlayerList({ players, self, onKick }: Props) {
             {player.id === self && " (you)"}
           </span>
           {!player.connected && <span className="players__status">Disconnected</span>}
-          {onKick && (
+          {onKick && player.id !== self && (
             <button
               className="button button--small"
               onClick={() => onKick(player)}

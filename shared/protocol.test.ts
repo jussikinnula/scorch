@@ -5,7 +5,14 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { isClientMessage, isRoomSettings, MAX_NAME_LENGTH, MAX_SAY_LENGTH, PROTOCOL_VERSION } from "./protocol";
+import {
+  MAX_NAME_LENGTH,
+  MAX_SAY_LENGTH,
+  PROTOCOL_VERSION,
+  defaultSettings,
+  isClientMessage,
+  isRoomSettings
+} from "./protocol";
 
 describe("isClientMessage", () => {
   it("accepts the messages of the API", () => {
@@ -320,6 +327,33 @@ describe("the walls of a room", () => {
   });
 });
 
+describe("the messages of online rooms", () => {
+  const settings = defaultSettings();
+
+  it("create a room with a name, a visibility and its settings, and ask for the list", () => {
+    expect(isClientMessage({ type: "create", mode: "online", name: "Ann", public: true, settings })).toBe(true);
+    expect(isClientMessage({ type: "create", mode: "online", name: "Ann", public: false, settings })).toBe(true);
+    expect(isClientMessage({ type: "list" })).toBe(true);
+    for (const message of [
+      { type: "create", mode: "online" },
+      { type: "create", mode: "online", name: "Ann", settings },
+      { type: "create", mode: "online", name: "Ann", public: true },
+      { type: "create", mode: "online", name: "Ann", public: true, settings: { ...settings, rounds: 0 } },
+      { type: "create", mode: "online", name: "", public: true, settings },
+      { type: "create", mode: "online", name: "a".repeat(MAX_NAME_LENGTH + 1), public: true, settings },
+      { type: "create", mode: "online", name: "Ann", public: "yes", settings },
+      { type: "create", mode: "lan", name: "Ann", public: true, settings }
+    ]) {
+      expect(isClientMessage(message), JSON.stringify(message)).toBe(false);
+    }
+  });
+
+  it("have the settings of the original as the settings of a new room", () => {
+    expect(isRoomSettings(settings)).toBe(true);
+    expect(settings).toMatchObject({ maxPlayers: 8, rounds: 10, turns: "classic", maxWind: 200, cash: 0, interest: 5 });
+  });
+});
+
 describe("the version of the protocol", () => {
   /**
    * The fingerprint of the protocol of each version: of everything in protocol.ts from the limits
@@ -340,7 +374,8 @@ describe("the version of the protocol", () => {
     9: "d842a2c0ed112fef",
     10: "95a0e636ae33ac22",
     11: "81d59318b615d6a9",
-    12: "99583e162f352c17"
+    12: "99583e162f352c17",
+    13: "5a17c35ab40f7cce"
   };
 
   it("is raised when the protocol changes", () => {
