@@ -1,4 +1,22 @@
-import { Weapon } from "./weapons";
+import { ACCESSORIES, findAccessory } from "./accessories";
+import { findWeapon, WEAPONS } from "./weapons";
+
+/** What the shop sells: a weapon or an accessory. */
+export interface Item {
+  id: string;
+  name: string;
+  /** The price of a bundle in dollars. */
+  price: number;
+  /** How many are got with one purchase. Infinity: everyone always has these. */
+  bundle: number;
+  /** The lowest arms level (0-4) of a game where it can be bought. */
+  armsLevel: number;
+}
+
+/** Everything the shop knows of, the weapons first. */
+export const ITEMS: readonly Item[] = [...WEAPONS, ...ACCESSORIES];
+
+export const findItem = (id: string): Item | undefined => findWeapon(id) ?? findAccessory(id);
 
 /**
  * The money of the game: what a player earns in a round, and what is done with it between the
@@ -33,7 +51,7 @@ export const withInterest = (money: number, percent: number) =>
   money > 0 ? money + Math.floor((money * percent) / 100) : money;
 
 /** Whether a weapon is sold in a shop of an arms level: all but those there is no end of and those of a higher level. */
-export const isForSale = (weapon: Weapon, armsLevel: number) =>
+export const isForSale = (weapon: Item, armsLevel: number) =>
   Number.isFinite(weapon.bundle) && weapon.armsLevel <= armsLevel;
 
 /**
@@ -43,8 +61,8 @@ export const isForSale = (weapon: Weapon, armsLevel: number) =>
 export const SELL_RATE = 0.8;
 
 /** How many of a weapon are sold at a time: a bundle, or what the player has left of one. */
-export const sellCount = (weapon: Weapon, owned: number) => Math.min(owned, weapon.bundle);
+export const sellCount = (weapon: Item, owned: number) => Math.min(owned, weapon.bundle);
 
 /** What the shop pays for a number of a weapon. */
-export const sellPrice = (weapon: Weapon, count: number) =>
+export const sellPrice = (weapon: Item, count: number) =>
   Math.floor((weapon.price / weapon.bundle) * count * SELL_RATE);

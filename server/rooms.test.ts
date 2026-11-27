@@ -25,6 +25,9 @@ describe("Rooms", () => {
     if (!message) throw new Error(`${of.name} has not got a "${type}" message`);
     return message as Extract<ServerMessage, { type: Type }>;
   };
+  /** All the messages of a type that a member has got. */
+  const all = <Type extends ServerMessage["type"]>(of: Member, type: Type) =>
+    of.messages.filter((candidate) => candidate.type === type) as Extract<ServerMessage, { type: Type }>[];
   const state = (of: Member): RoomState => last(of, "room").state;
   const errors = (of: Member) => of.messages.filter((message) => message.type === "error");
 
@@ -81,6 +84,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         },
         players: [],
@@ -171,6 +175,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -263,6 +268,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -289,6 +295,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -313,6 +320,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -326,6 +334,7 @@ describe("Rooms", () => {
         armsLevel: 4,
         traces: false,
         changingWind: false,
+        suspendDirt: 0,
         walls: "none"
       });
 
@@ -341,6 +350,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -355,6 +365,7 @@ describe("Rooms", () => {
         armsLevel: 4,
         traces: false,
         changingWind: false,
+        suspendDirt: 0,
         walls: "none"
       });
     });
@@ -376,6 +387,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -413,6 +425,7 @@ describe("Rooms", () => {
             armsLevel: 4,
             traces: false,
             changingWind: false,
+            suspendDirt: 0,
             walls: "none"
           }
         });
@@ -434,6 +447,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -639,6 +653,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -677,6 +692,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -784,6 +800,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -946,6 +963,82 @@ describe("Rooms", () => {
       expect(last(again, "weapons")).toMatchObject({ selected: "tracer", counts: { tracer: 19, missile: 5 } });
     });
 
+    it("shows a digger eating its way into the dirt, and the bombs of a Funky Bomb as parts of it", () => {
+      const { screen, ann } = startGame();
+      rooms.handle(ann, { type: "weapon", weapon: "heavy-digger" });
+      rooms.handle(ann, { type: "aim", angle: 80, power: 300 });
+      rooms.handle(ann, { type: "fire" });
+      vi.advanceTimersByTime(10000);
+      // Many tellings of the dirt, each with a little more of the tunnels, and the heads among the shots
+      const digs = all(screen, "terrain").filter((message) => message.changes.some((change) => change.op === "carve"));
+      expect(digs.length).toBeGreaterThan(10);
+      expect(all(screen, "shots").some((message) => message.shots.length === 5)).toBe(true);
+      expect(last(screen, "shots").shots).toEqual([]);
+
+      rooms.handle(ann, { type: "weapon", weapon: "funky-bomb" });
+      rooms.handle(ann, { type: "aim", angle: 85, power: 300 });
+      rooms.handle(ann, { type: "fire" });
+      expect(errors(ann)).toEqual([]);
+      vi.advanceTimersByTime(15000);
+      const parts = all(screen, "shots").flatMap((message) => message.shots.flatMap((shot) => shot.part ?? []));
+      expect(new Set(parts).size).toBe(6);
+      const blasts = all(screen, "explode").filter((message) => message.weapon === "funky-bomb");
+      expect(
+        blasts
+          .map((blast) => blast.part)
+          .filter((part) => part !== undefined)
+          .sort()
+      ).toEqual([0, 1, 2, 3, 4, 5]);
+    });
+
+    it("tells where napalm burns and how deep, and pours liquid dirt a little at a time", () => {
+      const { screen, ann } = startGame();
+      rooms.handle(ann, { type: "weapon", weapon: "napalm" });
+      rooms.handle(ann, { type: "aim", angle: 85, power: 300 });
+      rooms.handle(ann, { type: "fire" });
+      vi.advanceTimersByTime(15000);
+      expect(all(screen, "burn").length).toBeGreaterThan(5);
+      // The tanks are told again when it has burned, though the dirt did not change: their energy is shown from that
+      const after = last(screen, "terrain");
+      expect(after.changes).toEqual([]);
+      expect(after.tanks).toHaveLength(2);
+      const burn = last(screen, "burn");
+      expect(burn.weapon).toBe("napalm");
+      expect(burn.depths.reduce((sum, depth) => sum + depth, 0)).toBeGreaterThan(0);
+      expect(burn.depths[0]).toBeGreaterThan(0);
+      expect(burn.depths[burn.depths.length - 1]).toBeGreaterThan(0);
+
+      rooms.handle(ann, { type: "weapon", weapon: "liquid-dirt" });
+      rooms.handle(ann, { type: "fire" });
+      vi.advanceTimersByTime(15000);
+      const pours = all(screen, "terrain").filter((message) => message.changes.some((change) => change.op === "pour"));
+      expect(pours.length).toBeGreaterThan(10);
+      expect(last(screen, "shots").shots).toEqual([]);
+    });
+
+    it("leaves dirt hanging in the air when the room is set to, until an Earth Disrupter brings it down", () => {
+      const screen = createRoom();
+      const ann = joinRoom(screen, "Ann");
+      joinRoom(screen, "Bob");
+      const settings = { ...state(screen).settings, turns: "live" as const, maxWind: 0 };
+      rooms.handle(screen, { type: "settings", settings: { ...settings, suspendDirt: 100 } });
+      rooms.handle(screen, { type: "start" });
+
+      rooms.handle(ann, { type: "weapon", weapon: "riot-charge" });
+      rooms.handle(ann, { type: "fire" });
+      vi.advanceTimersByTime(4000);
+      const dug = last(screen, "terrain").changes;
+      expect(dug.length).toBeGreaterThan(1);
+      expect(dug.every((change) => change.op === "carve")).toBe(true);
+
+      rooms.handle(ann, { type: "weapon", weapon: "earth-disrupter" });
+      rooms.handle(ann, { type: "aim", angle: 90, power: 100 });
+      rooms.handle(ann, { type: "fire" });
+      vi.advanceTimersByTime(8000);
+      expect(last(screen, "explode").weapon).toBe("earth-disrupter");
+      expect(last(screen, "terrain").changes).toEqual([{ op: "settle" }]);
+    });
+
     it("changes the wind a little after every shot when the room is set to, and tells it to everyone", () => {
       const screen = createRoom();
       const ann = joinRoom(screen, "Ann");
@@ -1005,6 +1098,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -1037,6 +1131,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       } as never);
@@ -1129,6 +1224,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -1153,8 +1249,8 @@ describe("Rooms", () => {
 
     it("tells the players the energy of their tanks at the start", () => {
       const { screen, ann, bob } = startGame();
-      expect(of(ann, "energy")).toEqual([{ type: "energy", energy: 100 }]);
-      expect(of(bob, "energy")).toEqual([{ type: "energy", energy: 100 }]);
+      expect(of(ann, "energy")).toEqual([{ type: "energy", energy: 100, shield: 0 }]);
+      expect(of(bob, "energy")).toEqual([{ type: "energy", energy: 100, shield: 0 }]);
       expect(last(screen, "field").field.tanks.map((tank) => tank.energy)).toEqual([100, 100]);
       expect(state(screen).round).toBe(1);
     });
@@ -1207,7 +1303,7 @@ describe("Rooms", () => {
       expect(of(screen, "field")).toHaveLength(fields + 1);
       expect(state(screen).round).toBe(2);
       expect(last(screen, "field").field.tanks.map((tank) => tank.energy)).toEqual([100, 100]);
-      expect(last(ann, "energy")).toEqual({ type: "energy", energy: 100 });
+      expect(last(ann, "energy")).toEqual({ type: "energy", energy: 100, shield: 0 });
       expect(last(ann, "reload")).toEqual({ type: "reload", time: 0 });
       rooms.handle(ann, { type: "fire" });
       expect(errors(ann)).toHaveLength(2);
@@ -1237,6 +1333,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -1286,7 +1383,7 @@ describe("Rooms", () => {
 
       const again = member("Ann again");
       rooms.handle(again, { type: "resume", room, playerKey });
-      expect(last(again, "energy")).toEqual({ type: "energy", energy });
+      expect(last(again, "energy")).toEqual({ type: "energy", energy, shield: 0 });
     });
   });
 
@@ -1351,6 +1448,18 @@ describe("Rooms", () => {
       }
       expect([...order.slice(0, 3)].sort()).toEqual([0, 1, 2]);
       expect(order.slice(3)).toEqual(order.slice(0, 3));
+    });
+
+    it("passes the turn after a riot charge too, which is not a projectile: the dirt changes at once", () => {
+      const { screen, byId } = startClassic();
+      const player = whose(screen)!;
+      rooms.handle(byId(player), { type: "weapon", weapon: "riot-charge" });
+      rooms.handle(byId(player), { type: "fire" });
+      expect(last(byId(player), "weapons").counts["riot-charge"]).toBe(9);
+      vi.advanceTimersByTime(500);
+      expect(last(screen, "explode").weapon).toBe("riot-charge");
+      expect(last(screen, "shots").shots).toEqual([]);
+      expect(whose(screen)).not.toBe(player);
     });
 
     it("skips the turn of a player who does not fire in time", () => {
@@ -1436,6 +1545,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -1464,6 +1574,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       });
@@ -1538,6 +1649,7 @@ describe("Rooms", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none",
           ...more
         }
@@ -1718,7 +1830,13 @@ describe("Rooms", () => {
     });
 
     it("sells only the weapons of the arms level of the room", () => {
-      const { screen, players } = startGame(50000, { armsLevel: 0, traces: false, changingWind: false, walls: "none" });
+      const { screen, players } = startGame(50000, {
+        armsLevel: 0,
+        traces: false,
+        changingWind: false,
+        suspendDirt: 0,
+        walls: "none"
+      });
       const [ann] = players;
       rooms.handle(ann, { type: "buy", weapon: "nuke" });
       rooms.handle(ann, { type: "buy", weapon: "mirv" });
@@ -1749,6 +1867,83 @@ describe("Rooms", () => {
       // Nor can the settings be changed any more
       rooms.handle(screen, { type: "settings", settings: { ...state(screen).settings, maxPlayers: 10 } });
       expect(errors(screen)).toEqual([{ type: "error", code: "wrong-phase", re: "settings" }]);
+    });
+
+    it("sells accessories beside the weapons, and buys them back", () => {
+      const { screen, players } = startGame(100000);
+      const [ann] = players;
+      rooms.handle(ann, { type: "buy", weapon: "parachute" });
+      rooms.handle(ann, { type: "buy", weapon: "battery" });
+      rooms.handle(ann, { type: "buy", weapon: "shield" });
+      expect(last(ann, "weapons").counts).toEqual({ parachute: 8, battery: 10, shield: 3 });
+      expect(money(screen, 0)).toBe(100000 - 10000 - 5000 - 20000);
+      rooms.handle(ann, { type: "sell", weapon: "shield" });
+      expect(last(ann, "weapons").counts).toEqual({ parachute: 8, battery: 10 });
+      expect(money(screen, 0)).toBe(65000 + 16000);
+
+      // An accessory is not fired
+      for (const player of players) rooms.handle(player, { type: "ready" });
+      rooms.handle(ann, { type: "weapon", weapon: "battery" });
+      expect(errors(ann)).toEqual([{ type: "error", code: "no-weapon", re: "weapon" }]);
+      expect(last(ann, "weapons").selected).toBe("baby-missile");
+    });
+
+    it("gives energy back with a battery, and puts up a shield that takes the damage of others", () => {
+      const { screen, players } = startGame(100000);
+      const [ann, bob] = players;
+      rooms.handle(ann, { type: "buy", weapon: "battery" });
+      rooms.handle(ann, { type: "buy", weapon: "shield" });
+      rooms.handle(ann, { type: "buy", weapon: "heavy-shield" });
+      for (const player of players) rooms.handle(player, { type: "ready" });
+
+      // A battery is of no use to a whole tank, and nobody uses what it does not have
+      rooms.handle(ann, { type: "use", item: "battery" });
+      rooms.handle(bob, { type: "use", item: "shield" });
+      rooms.handle(ann, { type: "use", item: "parachute" });
+      rooms.handle(screen, { type: "use", item: "battery" });
+      expect(errors(ann)).toEqual([
+        { type: "error", code: "not-allowed", re: "use" },
+        { type: "error", code: "no-weapon", re: "use" }
+      ]);
+      expect(errors(bob)).toEqual([{ type: "error", code: "no-weapon", re: "use" }]);
+      expect(errors(screen)).toEqual([{ type: "error", code: "not-allowed", re: "use" }]);
+
+      // Ann hurts herself, and a battery gives ten of it back
+      rooms.handle(ann, { type: "aim", angle: 90, power: 100 });
+      rooms.handle(ann, { type: "fire" });
+      vi.advanceTimersByTime(3100);
+      const hurt = last(ann, "energy").energy;
+      expect(hurt).toBeLessThan(90);
+      rooms.handle(ann, { type: "use", item: "battery" });
+      expect(last(ann, "energy")).toEqual({ type: "energy", energy: hurt + 10, shield: 0 });
+      expect(last(ann, "weapons").counts.battery).toBe(9);
+      expect(last(screen, "terrain").tanks.find((tank) => tank.id === 0)!.energy).toBe(hurt + 10);
+
+      // A shield, and a heavier one in its place
+      rooms.handle(ann, { type: "use", item: "shield" });
+      expect(last(ann, "energy").shield).toBe(100);
+      expect(last(screen, "terrain").tanks.find((tank) => tank.id === 0)).toMatchObject({
+        shield: 100,
+        shieldMax: 100
+      });
+      rooms.handle(ann, { type: "use", item: "heavy-shield" });
+      expect(last(ann, "energy").shield).toBe(200);
+      expect(last(ann, "weapons").counts).toMatchObject({ shield: 2, "heavy-shield": 1 });
+    });
+
+    it("opens a parachute of a tank that falls, and takes it from what the player has", () => {
+      const { screen, players } = startGame(100000);
+      const [ann] = players;
+      rooms.handle(ann, { type: "buy", weapon: "parachute" });
+      rooms.handle(ann, { type: "buy", weapon: "riot-bomb" });
+      for (const player of players) rooms.handle(player, { type: "ready" });
+      // A Riot Bomb straight up comes down on the tank and takes the ground from under it
+      rooms.handle(ann, { type: "weapon", weapon: "riot-bomb" });
+      rooms.handle(ann, { type: "aim", angle: 90, power: 100 });
+      rooms.handle(ann, { type: "fire" });
+      vi.advanceTimersByTime(3100);
+      expect(last(ann, "weapons").counts.parachute).toBe(7);
+      expect(last(screen, "terrain").tanks.find((tank) => tank.id === 0)!.energy).toBe(100);
     });
 
     it("pays for the damage to another tank, and more for destroying it", () => {

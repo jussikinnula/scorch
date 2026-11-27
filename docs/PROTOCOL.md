@@ -104,13 +104,13 @@ If a second connection takes over a screen or a player with the right key, the f
 
 The state of the room (`RoomState`) is sent to everyone in the room whenever it changes: someone joins, leaves, loses or regains the connection, the settings change, or the phase changes.
 
-| From       | Message                 | When          | What happens                                                                                                                                                                                                                                                                                   |
-| ---------- | ----------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Screen     | `lobby`                 | When finished | Back to the lobby for a new game.                                                                                                                                                                                                                                                              |
-| Screen     | `settings { settings }` | In the lobby  | Changes the settings: the maximum number of players (2–10, 8 by default; not below the number already in the room), the rounds, the turns, the strongest wind, the cash at the start, the interest, the arms level, whether every shot leaves a trace, whether the wind changes and the walls. |
-| Screen     | `kick { id }`           | Any time      | Removes the player; its key stops working. The controller of the player gets the error `no-session`.                                                                                                                                                                                           |
-| Screen     | `start`                 | In the lobby  | Starts the game, if there are at least two players.                                                                                                                                                                                                                                            |
-| Controller | `leave`                 | Any time      | The player leaves for good. There is no answer.                                                                                                                                                                                                                                                |
+| From       | Message                 | When          | What happens                                                                                                                                                                                                                                                                                                                    |
+| ---------- | ----------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Screen     | `lobby`                 | When finished | Back to the lobby for a new game.                                                                                                                                                                                                                                                                                               |
+| Screen     | `settings { settings }` | In the lobby  | Changes the settings: the maximum number of players (2–10, 8 by default; not below the number already in the room), the rounds, the turns, the strongest wind, the cash at the start, the interest, the arms level, whether every shot leaves a trace, whether the wind changes, how often dirt stays in the air and the walls. |
+| Screen     | `kick { id }`           | Any time      | Removes the player; its key stops working. The controller of the player gets the error `no-session`.                                                                                                                                                                                                                            |
+| Screen     | `start`                 | In the lobby  | Starts the game, if there are at least two players.                                                                                                                                                                                                                                                                             |
+| Controller | `leave`                 | Any time      | The player leaves for good. There is no answer.                                                                                                                                                                                                                                                                                 |
 
 The game also starts by itself when the room becomes full.
 
@@ -196,7 +196,8 @@ controller                          server                          screen
 - **The screen draws a projectile between two places it was told**, on the way from the earlier to the later one, so the flight is smooth although the places come twenty times a second. A projectile that is not in a list any more is gone.
 - **A projectile outside the field**, above it or past a side, is shown as a white dot on the edge of the field, as in the original.
 - **Traces.** The screen draws the path of a Tracer as a row of dots that stays for the rest of the round, from the places it is told in `shots`. With `settings.traces` on (Trace Paths of the original) it does so for every projectile. A screen that returns in the middle of a round has lost the traces drawn so far.
-- **An explosion** is told once, when it happens: where, how large, and of which weapon. The weapon picks the look (fire, a ball of dirt, the flash of a riot bomb) and later the sound. Each projectile in `shots` also has the id of its weapon.
+- **An explosion** is told once, when it happens: where, how large, and of which weapon. The weapon picks the look (fire, a ball of dirt, the flash of a riot bomb) and later the sound. Each projectile in `shots` also has the id of its weapon. A bomb that a weapon threw from where it went off (a Funky Bomb) has `part`, its number from 0, both in `shots` and in the `explode` of its explosion: it is shown in a colour of its own, with a trace from where the weapon went off.
+- **The changes to the dirt** of one tick of the server come together in one `terrain`. What digs changes the dirt a little at every tick.
 - **A change to the terrain** is told as what was done to it, not as a new terrain: `carve` (the dirt inside a circle is destroyed), `fill` (a ball of dirt is made) and `settle` (the dirt that has nothing under it falls). The screen makes the same changes to its own copy with the code of `shared/sim/terrain.ts`, which uses only whole numbers and gives the same result everywhere. With the changes come the tanks as they are after them, because a tank comes down with the ground under it. The server moves such a tank straight to where it lands; the screen shows it falling there. The fall takes energy from the tank by its height (`FALL_DAMAGE` in `shared/sim/shots.ts`), which counts as damage by the shot that took the ground.
 - A screen that returns gets the whole `field` as it is now, craters and all, and the projectiles that are in the air in the next `shots`. A controller that returns gets a `reload` with the time that is left.
 
@@ -210,6 +211,7 @@ controller                          server                          screen
 
 ### Walls
 
+- `settings.suspendDirt` (Suspend Dirt of the original, 0–100, 0 by default) is the chance in per cent that the dirt an explosion leaves with nothing under it stays hanging in the air. The server decides it for each explosion: when the dirt falls, the `terrain` message ends with `settle`, and when it hangs there is no `settle` in it. Those who show the field only make the changes they are told. A tank falls to the dirt below it; dirt that hangs above it is not ground. At 0 all dirt always falls.
 - `settings.walls` tells what the edges of the field do to a projectile: `none` (the default, as in the original), `rubber` or `wraparound`. It is also in the `field`.
 - **None**: a projectile flies out. Past a side it is followed for a while and then gone; above the field it comes back down.
 - **Rubber**: the sides and the top of the field throw a projectile back as fast as it came. A roller turns back at the edge.
@@ -233,9 +235,19 @@ controller                          server
 - What the weapons do (`shared/sim/shots.ts`):
   - Baby Missile, Missile, Baby Nuke, Nuke: an explosion of the radius of the weapon, which destroys dirt and damages tanks.
   - MIRV: at the top of its flight it becomes five warheads that spread sideways, each of which explodes like a Missile. One that hits something on its way up explodes as a single warhead.
+  - Death's Head: a MIRV of nine larger warheads.
+  - Leap Frog: explodes three times, each time larger. After the first two it leaps on the way it was going; from a tank it leaps straight up and comes down on it again, so that a shield does not save the tank.
+  - Funky Bomb: explodes where it hits and throws six bombs around itself, each of which explodes where it comes down. The bombs have `part`. Where they go looks like chance but is decided by where the bomb hit, so that the same shot always does the same.
   - Dirt Clod, Dirt Ball, Ton of Dirt: a ball of dirt (`fill`), which then falls. A tank under it is buried but not harmed; when it fires, its shot goes off at the turret and hurts it.
   - Riot Bomb, Heavy Riot Bomb: destroys dirt, does not damage tanks.
-  - Tracer: flies and does nothing.
+  - Baby Digger, Digger, Heavy Digger: where it lands it tunnels on into the dirt the way it was going, as one, three or five tunnels that fan out. Each tunnel is dug by a head that is in `shots` like any projectile and eats the dirt as it goes, a hundred pixels a second; the dirt above the tunnels comes down when all of them are done. It does nothing to a tank, and one that comes down on a tank fizzles.
+  - Baby Sandhog, Sandhog, Heavy Sandhog: where it lands it tunnels sideways under the ground the way it was going. It has three, five or seven charges, which go off one after another: the first tunnel dives a little and ends in an explosion, the next charge digs on level from there to its own explosion, and so on. One head is in `shots` all the while. A tunnel that reaches a tank ends there in an explosion, and the charges that are left are lost; so are they at the edge of the field. A shield does not stop these explosions: they come from below. One that comes down on a tank explodes as a single charge.
+  - Liquid Dirt: where it lands it oozes out for a second or so. It flows downhill, fills the holes it reaches, lies nearly level and becomes ground. It comes as `terrain` changes of the kind `pour { x, amount }`: those who show the field let it flow with the same code as the server (`flow` in `shared/sim/terrain.ts`), so only where and how much is told. It is in `shots`, at the place it landed, while it pours.
+  - Napalm, Hot Napalm: where it lands it spills out for a second or two and flows over the ground as a liquid does, runnier than liquid dirt, burning where it lies. It sticks: a thin film of it stays on every column it flows over, so a slope burns too, and the rest runs on into the hollows. It takes energy from a tank by how deep it lies on it or right beside it, where its flames reach the tank: a tank in a hollow that it runs into is hurt the most, and one on a ledge over a pool of it burns too. When it has burned, the tanks are told with a `terrain` that has no changes. The dirt does not burn. The server tells where it lies with `burn { id, x, depths, weapon }`: the depth in pixels on each column from `x` to the right. While it spreads this is told a few times a second with the same `id`, each time all of it, and it is shown as flames until a few seconds after the last telling. It is in `shots`, at the place it landed, while it spills. The damage is done when all of it is out, and a shield takes it like that of an explosion.
+  - Earth Disrupter: where it lands, all the dirt that hangs in the air falls, everywhere on the field (`terrain` with only `settle`). It destroys nothing. It matters in a game with `suspendDirt` above 0.
+  - Dirt Charge: as a Riot Charge, but it throws a wedge of dirt where the turret points instead of destroying one. The dirt then falls.
+  - Riot Charge, Riot Blast: not a projectile. It destroys a wedge of dirt from the end of the turret, the way the turret points, for digging oneself out. It is in `shots` for one telling, at the turret, and the change comes as `terrain` at once; the power of the shot does not matter.
+  - Tracer, Smoke Tracer: flies and does nothing. Both leave a trace on the field for the round; that of a Tracer is a row of dots, that of a Smoke Tracer a thick even line.
   - Baby Roller, Roller, Heavy Roller: where it lands it starts to roll like a ball, faster downhill and slower uphill, and explodes when it reaches a tank or stops in a valley (or after six seconds). One that comes down on a tank explodes at once. A rolling projectile is in `shots` like one in the air.
 
 ### Money and the shop
@@ -260,6 +272,22 @@ controller                          server                          everyone
 - `ready` tells that the player is done. The round starts when every player who is connected is ready, or when the time is out. A player who is not connected is not waited for.
 - A device that returns to the shop gets the state of the room and its `weapons`.
 
+### Accessories
+
+```
+controller                          server                          those who show the field
+  │ ── use { item: "shield" } ──────▶ │
+  │ ◀── energy { energy, shield } ─── │ ── terrain { changes: [], tanks } ─▶
+  │ ◀── weapons { selected, counts } ─ │
+```
+
+- The accessories are data that both sides have, as the weapons are: `shared/accessories.ts`. They are bought and sold in the shop with the same `buy` and `sell`, by their ids, and they are in the `counts` of `weapons` with the weapons.
+- **A battery** gives a tank ten of its energy back, up to all of it, when the player uses one: `use { item: "battery" }`. It is refused with `not-allowed` when the tank has all of its energy.
+- **A shield** is put up with `use { item: "shield" }` or `"heavy-shield"`, in place of the one the tank may have had. It takes the damage that the explosions of the shots of others would do to the tank, until it has taken as much as it can (100 for a Shield, 200 for a Heavy Shield: our own numbers). It does not protect from the tank's own shots or from a fall, and it is gone when the round ends. Damage to a shield pays the one who did it as damage to the tank would.
+- **A parachute** is not used: one opens by itself when the tank falls far enough to lose more than five of its energy, and takes all the damage of that fall.
+- `use` is answered with `energy`, which also tells what is left of the shield, and with `weapons`. Those who show the field are sent the tanks again (a `terrain` with no changes), whose `shield` and `shieldMax` they draw as a ring around the tank. `use` is refused with `no-weapon` when the player has none of the item or it is not one that is used, with `destroyed` for a tank that is gone, and with `wrong-phase` outside a round.
+- The rest of the accessories of the original (the other shields, the guidance systems, fuel, Auto Defense) come later.
+
 ### Turns: classic and live
 
 The screen chooses in the lobby how the turns go (`settings.turns`). A new room has the classic mode.
@@ -278,7 +306,7 @@ A device that returns gets the turn with the state of the room, with the time th
 ### Damage and rounds
 
 - A tank has an **energy** from 100 down to 0, which is in the tanks of the `field` and `terrain` messages. An explosion takes energy from the tanks its fire reaches, the more the closer it is (`shared/sim/shots.ts`): the most at the middle of the tank, less in proportion to the distance, down to nothing a blast radius away. The most is by the weapon (`damage` in `shared/weapons.ts`): a Baby Missile takes half of the energy of a whole tank at best, the nukes all of it. A tank also loses energy when it falls.
-- The player is told the energy of its own tank with `energy { energy }`: at the start of a round, whenever it changes, and when the controller returns.
+- The player is told the energy of its own tank and what is left of its shield with `energy { energy, shield }`: at the start of a round, whenever it changes, and when the controller returns.
 - **The power is at most ten times the energy**, as in the original. The server lowers the power of a tank that is damaged, and an `aim` with more power is cut to what the energy allows.
 - A tank with no energy is **destroyed**: it stays on the field as a wreck, a projectile flies through it, and its `aim` and `fire` are refused with the error `destroyed`. Its player can still use the speech bubbles.
 - **A round is over** when at most one tank is left and nothing is in the air. Everyone in the room is told `roundOver { round, winner }`, where the winner is the id of the player whose tank is left, or null if none is. Firing is refused with `wrong-phase` while the result is shown.

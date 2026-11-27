@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { findWeapon, MAX_ITEMS, starterKit, WEAPONS } from "./weapons";
+import { findWeapon, LEAP_FROG_RADII, MAX_ITEMS, starterKit, WEAPONS } from "./weapons";
 
 describe("the weapons", () => {
   it("have unique ids", () => {
@@ -21,6 +21,23 @@ describe("the weapons", () => {
 
   it("include the one everybody always has", () => {
     expect(WEAPONS.filter((weapon) => weapon.bundle === Infinity).map((weapon) => weapon.id)).toEqual(["baby-missile"]);
+  });
+
+  it("have what their kinds need", () => {
+    for (const weapon of WEAPONS) {
+      if (weapon.kind === "mirv") expect(weapon.warheads).toBeGreaterThan(1);
+      if (weapon.kind === "charge") expect(weapon.spread).toBeGreaterThan(0);
+      if (weapon.kind === "digger" || weapon.kind === "sandhog") {
+        expect(weapon.tunnel).toBeGreaterThan(0);
+        expect(weapon.warheads).toBeGreaterThan(0);
+      }
+      // What does not explode has no radius, and the other way round
+      expect(weapon.radius > 0).toBe(!["tracer", "disrupter", "liquid", "napalm"].includes(weapon.kind));
+      if (weapon.kind === "liquid" || weapon.kind === "napalm") expect(weapon.amount).toBeGreaterThan(0);
+    }
+    expect(findWeapon("deaths-head")).toMatchObject({ warheads: 9, radius: 35, price: 20000, bundle: 1, armsLevel: 4 });
+    expect(findWeapon("smoke-tracer")).toMatchObject({ kind: "tracer", smoke: true, price: 500, bundle: 10 });
+    expect(Math.max(...LEAP_FROG_RADII)).toBe(findWeapon("leap-frog")!.radius);
   });
 
   it("are found by their ids", () => {

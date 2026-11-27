@@ -37,6 +37,7 @@ describe("isClientMessage", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       },
@@ -53,6 +54,8 @@ describe("isClientMessage", () => {
     expect(isClientMessage({ type: "buy", weapon: "missile" })).toBe(true);
     expect(isClientMessage({ type: "sell", weapon: "missile" })).toBe(true);
     expect(isClientMessage({ type: "sell" })).toBe(false);
+    expect(isClientMessage({ type: "use", item: "battery" })).toBe(true);
+    expect(isClientMessage({ type: "use" })).toBe(false);
     expect(isClientMessage({ type: "ready" })).toBe(true);
     expect(isClientMessage({ type: "buy" })).toBe(false);
     for (const message of messages) expect(isClientMessage(message), JSON.stringify(message)).toBe(true);
@@ -88,6 +91,7 @@ describe("isClientMessage", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       },
@@ -103,6 +107,7 @@ describe("isClientMessage", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       },
@@ -120,6 +125,7 @@ describe("isClientMessage", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       },
@@ -135,6 +141,7 @@ describe("isClientMessage", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       },
@@ -150,6 +157,7 @@ describe("isClientMessage", () => {
           armsLevel: 4,
           traces: false,
           changingWind: false,
+          suspendDirt: 0,
           walls: "none"
         }
       },
@@ -197,6 +205,7 @@ describe("isRoomSettings", () => {
         armsLevel: 4,
         traces: false,
         changingWind: false,
+        suspendDirt: 0,
         walls: "none"
       })
     ).toBe(true);
@@ -211,6 +220,7 @@ describe("isRoomSettings", () => {
         armsLevel: 4,
         traces: false,
         changingWind: false,
+        suspendDirt: 0,
         walls: "none"
       })
     ).toBe(true);
@@ -226,6 +236,7 @@ describe("isRoomSettings", () => {
         armsLevel: 4,
         traces: false,
         changingWind: false,
+        suspendDirt: 0,
         walls: "none"
       })
     ).toBe(true);
@@ -240,6 +251,7 @@ describe("isRoomSettings", () => {
         armsLevel: 4,
         traces: false,
         changingWind: false,
+        suspendDirt: 0,
         walls: "none"
       })
     ).toBe(true);
@@ -260,6 +272,7 @@ describe("isRoomSettings", () => {
         armsLevel: 4,
         traces: false,
         changingWind: false,
+        suspendDirt: 0,
         walls: "none"
       })
     ).toBe(true);
@@ -274,6 +287,7 @@ describe("isRoomSettings", () => {
         armsLevel: 4,
         traces: false,
         changingWind: false,
+        suspendDirt: 0,
         walls: "none"
       })
     ).toBe(false);
@@ -294,17 +308,34 @@ describe("the settings of the economy", () => {
     armsLevel: 4,
     traces: false,
     changingWind: false,
+    suspendDirt: 0,
     walls: "none"
   };
+
+  it("have a chance of 0 to 100 per cent that dirt stays in the air", () => {
+    for (const suspendDirt of [0, 50, 100]) expect(isRoomSettings({ ...settings, suspendDirt })).toBe(true);
+    for (const suspendDirt of [undefined, -1, 101, 2.5, "50"])
+      expect(isRoomSettings({ ...settings, suspendDirt })).toBe(false);
+  });
 
   it("have an interest of 0 to 30 per cent and an arms level of 0 to 4", () => {
     expect(isRoomSettings(settings)).toBe(true);
     expect(
-      isRoomSettings({ ...settings, interest: 30, armsLevel: 0, traces: false, changingWind: false, walls: "none" })
+      isRoomSettings({
+        ...settings,
+        interest: 30,
+        armsLevel: 0,
+        traces: false,
+        changingWind: false,
+        suspendDirt: 0,
+        walls: "none"
+      })
     ).toBe(true);
     for (const interest of [undefined, -1, 31, 2.5]) expect(isRoomSettings({ ...settings, interest })).toBe(false);
     for (const armsLevel of [undefined, -1, 5, 1.5])
-      expect(isRoomSettings({ ...settings, armsLevel, traces: false, changingWind: false, walls: "none" })).toBe(false);
+      expect(
+        isRoomSettings({ ...settings, armsLevel, traces: false, changingWind: false, suspendDirt: 0, walls: "none" })
+      ).toBe(false);
   });
 });
 
@@ -318,7 +349,8 @@ describe("the walls of a room", () => {
     interest: 5,
     armsLevel: 4,
     traces: false,
-    changingWind: false
+    changingWind: false,
+    suspendDirt: 0
   };
 
   it("are none, rubber or wraparound", () => {
@@ -375,7 +407,8 @@ describe("the version of the protocol", () => {
     10: "95a0e636ae33ac22",
     11: "81d59318b615d6a9",
     12: "99583e162f352c17",
-    13: "5a17c35ab40f7cce"
+    13: "5a17c35ab40f7cce",
+    14: "09e7913f671b6cd6"
   };
 
   it("is raised when the protocol changes", () => {

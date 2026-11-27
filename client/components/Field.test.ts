@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { atEdge, fallTanks, layoutField, placeShots, wrapText } from "./Field";
+import {
+  atEdge,
+  BURN_TIME,
+  fallTanks,
+  flameHeight,
+  layoutField,
+  placeShots,
+  shieldShade,
+  smokeWisps,
+  tracePoints,
+  wrapText
+} from "./Field";
 
 describe("layoutField", () => {
   const field = { width: 1280, height: 720 };
@@ -72,7 +83,7 @@ describe("atEdge", () => {
 });
 
 describe("fallTanks", () => {
-  const tank = { id: 0, x: 100, y: 500, angle: 45, power: 500, energy: 100 };
+  const tank = { id: 0, x: 100, y: 500, angle: 45, power: 500, energy: 100, shield: 0, shieldMax: 0 };
 
   it("shows a tank whose ground went on its way down, until it lands", () => {
     const shown = new Map<number, { x: number; y: number; speed: number }>();
@@ -95,5 +106,94 @@ describe("fallTanks", () => {
     fallTanks([tank], shown, 0.016);
     expect(fallTanks([{ ...tank, x: 700, y: 650 }], shown, 0.016)[0]).toMatchObject({ x: 700, y: 650 });
     expect(fallTanks([{ ...tank, x: 700, y: 600 }], shown, 0.016)[0].y).toBe(600);
+  });
+});
+
+describe("tracePoints", () => {
+  const points = [
+    { x: 100, y: 200 },
+    { x: 130, y: 180 },
+    { x: 160, y: 170 }
+  ];
+
+  it("ends the trace of a projectile that flies where the projectile is drawn, not ahead of it", () => {
+    expect(tracePoints({ points }, { x: 140, y: 176 })).toEqual([points[0], points[1], { x: 140, y: 176 }]);
+  });
+
+  it("is all the places that were told once the projectile is gone", () => {
+    expect(tracePoints({ points }, undefined)).toEqual(points);
+  });
+});
+
+describe("shieldShade", () => {
+  it("is white for a whole shield, and a darker grey the less of it is left", () => {
+    expect(shieldShade(100, 100)).toBe(255);
+    expect(shieldShade(200, 200)).toBe(255);
+    expect(shieldShade(50, 100)).toBeLessThan(shieldShade(75, 100));
+    expect(shieldShade(1, 100)).toBeLessThan(60);
+    expect(shieldShade(1, 100)).toBeGreaterThan(0);
+  });
+});
+
+describe("flameHeight", () => {
+  it("stands higher where what burns lies deeper, and is none where nothing lies", () => {
+    expect(flameHeight(0, 10, 1000, 0.1)).toBe(0);
+    const heights = (depth: number) =>
+      Array.from({ length: 50 }, (_, tick) => flameHeight(depth, 10, tick * 16, 0.1)).reduce((a, b) => a + b) / 50;
+    expect(heights(10)).toBeGreaterThan(heights(2) * 2);
+    expect(heights(1)).toBeGreaterThan(3);
+  });
+
+  it("dies down at the end of its time", () => {
+    expect(BURN_TIME).toBeGreaterThan(1000);
+    expect(flameHeight(10, 10, 1000, 0.95)).toBeLessThan(flameHeight(10, 10, 1000, 0.5) / 2);
+    expect(flameHeight(10, 10, 1000, 1)).toBe(0);
+  });
+});
+
+describe("flameHeight over a fire", () => {
+  it("changes smoothly from a column to the next", () => {
+    for (let x = 100; x < 400; x++) {
+      expect(Math.abs(flameHeight(10, x + 1, 5000, 0.1) - flameHeight(10, x, 5000, 0.1))).toBeLessThan(9);
+    }
+  });
+
+  it("lets each tongue move in its own time: the fire does not rise and fall as one", () => {
+    // When each of a row of columns is at its highest, over a few seconds
+    const highest = (x: number) => {
+      let [best, at] = [0, 0];
+      for (let now = 0; now < 4000; now += 20) {
+        const flame = flameHeight(10, x, now, 0.1);
+        if (flame > best) [best, at] = [flame, now];
+      }
+      return at;
+    };
+    const moments = [106, 119, 132, 145, 158, 171, 184].map(highest);
+    expect(new Set(moments).size).toBeGreaterThan(4);
+  });
+});
+
+describe("smokeWisps", () => {
+  it("rise from places along the fire, grow and thin out, and start again", () => {
+    const wisps = smokeWisps(300, 260, 5000);
+    expect(wisps.length).toBeGreaterThan(6);
+    expect(wisps.length).toBeLessThan(14);
+    for (const wisp of wisps) {
+      expect(wisp.rise).toBeGreaterThanOrEqual(0);
+      expect(wisp.rise).toBeLessThan(70);
+      expect(wisp.thickness).toBeGreaterThan(0);
+      expect(wisp.thickness).toBeLessThanOrEqual(0.3);
+    }
+    // Not all at the same height: each has a pace of its own
+    expect(new Set(wisps.map((wisp) => Math.round(wisp.rise / 10))).size).toBeGreaterThan(2);
+    // The same wisp a little later is higher, larger and thinner, until it starts again
+    const later = smokeWisps(300, 260, 5100);
+    const risen = wisps.filter((wisp, index) => later[index].rise > wisp.rise);
+    expect(risen.length).toBeGreaterThan(wisps.length / 2);
+    for (const wisp of risen) expect(later[wisps.indexOf(wisp)].radius).toBeGreaterThan(wisp.radius);
+  });
+
+  it("has none where there is no fire", () => {
+    expect(smokeWisps(300, 0, 5000)).toEqual([]);
   });
 });

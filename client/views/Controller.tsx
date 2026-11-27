@@ -6,6 +6,7 @@ import { playerColor } from "../colors";
 import AimBar from "../components/AimBar";
 import AimControl from "../components/AimControl";
 import FireControl from "../components/FireControl";
+import GearControl from "../components/GearControl";
 import PlayerList from "../components/PlayerList";
 import SayControl from "../components/SayControl";
 import Shop from "../components/Shop";
@@ -45,6 +46,8 @@ export default function Controller({ api, room, online = false, field }: Props) 
   const [problem, setProblem] = useState<Problem | null>(null);
   /** The energy of the tank of the player, as the server told it. A tank with none is destroyed. */
   const [energy, setEnergy] = useState(MAX_ENERGY);
+  /** What is left of the shield of the tank, 0 when it has none. */
+  const [shield, setShield] = useState(0);
   /** The result of the round that just ended, until the next round starts. */
   const [result, setResult] = useState<{ round: number; winner: number | null } | null>(null);
   // The turns of the classic mode: whose it is, and how long that player still has
@@ -106,6 +109,7 @@ export default function Controller({ api, room, online = false, field }: Props) 
       setAim({ angle: message.angle, power: message.power });
     } else if (message.type === "energy") {
       setEnergy(message.energy);
+      setShield(message.shield);
       // The power cannot be more than the energy allows
       setAim((current) => current && { ...current, power: Math.min(current.power, message.energy * 10) });
       // A whole tank after a round has ended is the start of the next round
@@ -137,6 +141,9 @@ export default function Controller({ api, room, online = false, field }: Props) 
     if (Object.keys(unsent.current).length > 0 && api.send({ type: "aim", ...unsent.current })) unsent.current = {};
     api.send({ type: "fire" });
   };
+
+  /** Uses an accessory of the tank: a battery, or a shield to put up. */
+  const useItem = (item: string) => api.send({ type: "use", item });
 
   /** Chooses the weapon the tank fires next. It is shown at once; the server answers with what the tank really has. */
   const chooseWeapon = (weapon: string) => {
@@ -248,6 +255,7 @@ export default function Controller({ api, room, online = false, field }: Props) 
             <>
               <AimBar angle={aim.angle} power={aim.power} maxPower={energy * 10} onChange={changeAim} />
               {weapons && <WeaponControl selected={weapons.selected} counts={weapons.counts} onSelect={chooseWeapon} />}
+              {weapons && <GearControl counts={weapons.counts} energy={energy} shield={shield} onUse={useItem} />}
               <FireControl
                 reloadedAt={reload.until}
                 reloadTime={reload.time}
@@ -353,6 +361,7 @@ export default function Controller({ api, room, online = false, field }: Props) 
             waiting={turn && !myTurn ? "Wait" : undefined}
             onFire={fire}
           />
+          {weapons && <GearControl counts={weapons.counts} energy={energy} shield={shield} onUse={useItem} />}
           <SayControl onSay={(text) => api.send({ type: "say", text })} />
           {said !== undefined && (
             <p className="note" role="status">

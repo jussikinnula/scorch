@@ -6,6 +6,9 @@ describe("the routes", () => {
   it("are parsed from the hash", () => {
     expect(parseRoute("")).toEqual({ view: "home" });
     expect(parseRoute("#/")).toEqual({ view: "home" });
+    expect(parseRoute("#/online")).toEqual({ view: "online" });
+    expect(parseRoute("#/online/")).toEqual({ view: "online" });
+    expect(parseRoute("#/online/new")).toEqual({ view: "new" });
     expect(parseRoute("#/screen/abc")).toEqual({ view: "screen", room: "abc" });
     expect(parseRoute("#/play/abc")).toEqual({ view: "play", room: "abc" });
     expect(parseRoute("#/controller/abc")).toEqual({ view: "controller", room: "abc" });
@@ -14,6 +17,8 @@ describe("the routes", () => {
 
   it("fall back to the front page", () => {
     expect(parseRoute("#/screen")).toEqual({ view: "home" });
+    expect(parseRoute("#/online/old")).toEqual({ view: "home" });
+    expect(parseRoute("#/online/new/extra")).toEqual({ view: "home" });
     expect(parseRoute("#/screen/abc/extra")).toEqual({ view: "home" });
     expect(parseRoute("#/unknown/abc")).toEqual({ view: "home" });
     expect(parseRoute("#/join/<script>")).toEqual({ view: "home" });
@@ -22,6 +27,8 @@ describe("the routes", () => {
   it("survive a round trip", () => {
     const routes: Route[] = [
       { view: "home" },
+      { view: "online" },
+      { view: "new" },
       { view: "screen", room: "abc" },
       { view: "play", room: "abc" },
       { view: "controller", room: "abc" },

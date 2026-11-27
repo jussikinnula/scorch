@@ -1,7 +1,7 @@
 import React from "react";
 
-import { isForSale, sellCount, sellPrice } from "../../shared/economy";
-import { MAX_ITEMS, WEAPONS } from "../../shared/weapons";
+import { isForSale, ITEMS, sellCount, sellPrice } from "../../shared/economy";
+import { MAX_ITEMS } from "../../shared/weapons";
 import { formatMoney } from "../money";
 
 interface Props {
@@ -28,7 +28,7 @@ export default function Shop({ money, counts, ready, time, armsLevel, onBuy, onS
         {time !== null && time > 0 && <span aria-label="Time left">{time}</span>}
       </p>
       <ul className="shop__items">
-        {WEAPONS.filter((weapon) => isForSale(weapon, armsLevel) || (counts[weapon.id] ?? 0) > 0).map((weapon) => {
+        {ITEMS.filter((weapon) => isForSale(weapon, armsLevel) || (counts[weapon.id] ?? 0) > 0).map((weapon) => {
           const owned = counts[weapon.id] ?? 0;
           const full = owned + weapon.bundle > MAX_ITEMS;
           return (
@@ -36,7 +36,7 @@ export default function Shop({ money, counts, ready, time, armsLevel, onBuy, onS
               <span className="shop__name">
                 {weapon.name}
                 <small>
-                  {weapon.bundle} for {formatMoney(weapon.price)} · you have {owned}
+                  {weapon.bundle} for {formatMoney(weapon.price)} · own {owned}
                 </small>
               </span>
               <button

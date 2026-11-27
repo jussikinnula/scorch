@@ -35,7 +35,7 @@ describe("generateTerrain", () => {
       for (const column of terrain) {
         expect(column).toHaveLength(2);
         expect(Number.isInteger(column[0])).toBe(true);
-        expect(column[0]).toBeGreaterThanOrEqual(0.25 * FIELD_HEIGHT);
+        expect(column[0]).toBeGreaterThanOrEqual(0.15 * FIELD_HEIGHT);
         expect(column[0]).toBeLessThan(FIELD_HEIGHT);
         expect(column[1]).toBe(FIELD_HEIGHT);
       }
@@ -43,8 +43,31 @@ describe("generateTerrain", () => {
   });
 
   it("has no cliffs: the ground changes little from a column to the next", () => {
-    const terrain = generateTerrain(FIELD_WIDTH, FIELD_HEIGHT, createRandom(7));
-    for (let x = 1; x < terrain.length; x++) expect(Math.abs(terrain[x][0] - terrain[x - 1][0])).toBeLessThanOrEqual(6);
+    for (const seed of [7, 8, 9, 10, 11]) {
+      const terrain = generateTerrain(FIELD_WIDTH, FIELD_HEIGHT, createRandom(seed));
+      for (let x = 1; x < terrain.length; x++) {
+        expect(Math.abs(terrain[x][0] - terrain[x - 1][0])).toBeLessThanOrEqual(10);
+      }
+    }
+  });
+
+  it("uses the height of the field: high hills and deep valleys in every terrain", () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const tops = generateTerrain(FIELD_WIDTH, FIELD_HEIGHT, createRandom(seed)).map((column) => column[0]);
+      expect(Math.max(...tops) - Math.min(...tops)).toBeGreaterThan(0.44 * FIELD_HEIGHT);
+      expect(Math.min(...tops)).toBeLessThan(0.36 * FIELD_HEIGHT);
+      expect(Math.max(...tops)).toBeGreaterThan(0.78 * FIELD_HEIGHT);
+    }
+  });
+
+  it("has no plateaus: nowhere is the ground level for long", () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const tops = generateTerrain(FIELD_WIDTH, FIELD_HEIGHT, createRandom(seed)).map((column) => column[0]);
+      for (let x = 0; x + 260 <= tops.length; x += 20) {
+        const stretch = tops.slice(x, x + 260);
+        expect(Math.max(...stretch) - Math.min(...stretch)).toBeGreaterThan(20);
+      }
+    }
   });
 
   it("is the same for the same seed", () => {

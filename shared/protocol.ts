@@ -20,7 +20,7 @@ export const SOCKET_PATH = "/ws";
  * A client tells its version in the address it connects to (see socketPath), the server in its
  * greeting. The test of this file fails when the messages change and the version does not.
  */
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 
 /** The name of the part of the address of the WebSocket API where a client tells its version. */
 export const PROTOCOL_PARAMETER = "protocol";
@@ -138,6 +138,11 @@ export interface RoomSettings {
   traces: boolean;
   /** Whether the wind changes a little after every shot of a round (Changing Wind). */
   changingWind: boolean;
+  /**
+   * The chance, in per cent, that the dirt an explosion leaves with nothing under it stays hanging
+   * in the air instead of falling (Suspend Dirt). 0: all dirt always falls.
+   */
+  suspendDirt: number;
   walls: WallMode;
 }
 
@@ -164,6 +169,7 @@ export const defaultSettings = (): RoomSettings => ({
   armsLevel: MAX_ARMS_LEVEL,
   traces: false,
   changingWind: false,
+  suspendDirt: 0,
   walls: "none"
 });
 
@@ -233,6 +239,12 @@ export interface TankState {
   power: number;
   /** From 100 down to 0. A tank with no energy is destroyed: it stays on the field as a wreck. */
   energy: number;
+  /**
+   * How much damage the shield of the tank still takes, and how much it took when it was put up.
+   * Both are 0 when the tank has no shield.
+   */
+  shield: number;
+  shieldMax: number;
 }
 
 /** A projectile in the air, as it is shown. */
@@ -245,6 +257,11 @@ export interface ShotState {
   /** In pixels of the playing field. A projectile can be outside the field: above it, or past its sides. */
   x: number;
   y: number;
+  /**
+   * Of a bomb that a weapon threw from where it went off (a Funky Bomb): which of them it is, from 0.
+   * Such a bomb is shown with a trace from where it was thrown, in a colour of its own.
+   */
+  part?: number;
 }
 
 /**
@@ -257,7 +274,9 @@ export type TerrainChange =
   /** A ball of dirt is made. */
   | { op: "fill"; x: number; y: number; r: number }
   /** All the dirt that has nothing under it falls straight down. */
-  | { op: "settle" };
+  | { op: "settle" }
+  /** Liquid dirt is poured on the ground at a column: it flows downhill, fills the holes it reaches and sets. The amount is in pixels of dirt. */
+  | { op: "pour"; x: number; amount: number };
 
 /** The playing field at the start of a round. */
 export interface FieldState {
@@ -362,6 +381,11 @@ export type ClientMessage =
   | { type: "sell"; weapon: string }
   /** In the shop: a player has bought what it wants. The next round starts when everyone has said so. */
   | { type: "ready" }
+  /**
+   * A player uses an accessory it has, during a round: a battery gives the tank energy, a shield is
+   * put up around it. Answered with "energy" and "weapons".
+   */
+  | { type: "use"; item: string }
   /** A player fires the tank, with the aim and the weapon it has. */
   | { type: "fire" }
   /** A player says something in a speech bubble above the tank. */
@@ -390,8 +414,8 @@ export type ServerMessage =
   | { type: "field"; field: FieldState }
   /** To those who show the playing field: the aim of a tank changed. To a controller: the aim of its own tank, when it cannot know it. */
   | { type: "aim"; id: number; angle: number; power: number }
-  /** To a player: the energy of its tank, at first and whenever it changes. */
-  | { type: "energy"; energy: number }
+  /** To a player: the energy of its tank and what is left of its shield (0 when it has none), at first and whenever either changes. */
+  | { type: "energy"; energy: number; shield: number }
   /** To everyone in the room: the round ended. The winner is the id of the player whose tank is left, null if none is. */
   | { type: "roundOver"; round: number; winner: number | null }
   /** To a player: how long its tank still reloads, in milliseconds. 0 when it can fire. */
@@ -399,12 +423,19 @@ export type ServerMessage =
   /** To those who show the playing field: all the projectiles in the air, while there are any, and once more when there are none. */
   | { type: "shots"; shots: ShotState[] }
   /**
-   * To a player: the weapon its tank fires next, and how many it has of each weapon, by the id of the
-   * weapon. A weapon there is no end of (the Baby Missile) is not among them, nor one the player has none of.
+   * To a player: the weapon its tank fires next, and how many it has of each weapon and accessory, by
+   * the id of the item. A weapon there is no end of (the Baby Missile) is not among them, nor an item
+   * the player has none of.
    */
   | { type: "weapons"; selected: string; counts: Record<string, number> }
   /** To those who show the playing field: a weapon went off. The id of the weapon tells what it looks and sounds like. */
-  | { type: "explode"; x: number; y: number; radius: number; weapon: string }
+  | { type: "explode"; x: number; y: number; radius: number; weapon: string; part?: number }
+  /**
+   * To those who show the playing field: something that burns lies on the ground (Napalm). How deep
+   * it lies on each column, in pixels, from the column x to the right. It is told again with the
+   * same id while it spreads: each telling is all of it. It burns for a moment after the last one.
+   */
+  | { type: "burn"; id: number; x: number; depths: number[]; weapon: string }
   /** To those who show the playing field: the dirt changed, and the tanks are as they are after it: where, and with what energy. */
   | { type: "terrain"; changes: TerrainChange[]; tanks: TankState[] }
   /** To those who show the playing field, and to the one who said it: a speech bubble. */
@@ -427,7 +458,7 @@ function isText(value: unknown, maxLength: number): value is string {
 
 export function isRoomSettings(value: unknown): value is RoomSettings {
   if (typeof value !== "object" || value === null) return false;
-  const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, walls } =
+  const { maxPlayers, rounds, turns, maxWind, cash, interest, armsLevel, traces, changingWind, suspendDirt, walls } =
     value as RoomSettings;
   return (
     isInteger(maxPlayers, MIN_PLAYERS, MAX_PLAYERS) &&
@@ -438,6 +469,7 @@ export function isRoomSettings(value: unknown): value is RoomSettings {
     isInteger(armsLevel, 0, MAX_ARMS_LEVEL) &&
     typeof traces === "boolean" &&
     typeof changingWind === "boolean" &&
+    isInteger(suspendDirt, 0, 100) &&
     (walls === "none" || walls === "rubber" || walls === "wraparound") &&
     (turns === "classic" || turns === "live")
   );
@@ -490,6 +522,8 @@ export function isClientMessage(value: unknown): value is ClientMessage {
     case "buy":
     case "sell":
       return isId(message.weapon);
+    case "use":
+      return isId(message.item);
     case "say":
       return isText(message.text, MAX_SAY_LENGTH);
     default:
